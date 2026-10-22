@@ -1,0 +1,113 @@
+import { useState } from 'react';
+import { isToday, isYesterday, parseISO, subDays } from 'date-fns';
+import { BellOff, CheckCheck, Circle, CircleDot, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, EmptyState, PageHeader, Segmented } from '@/components/ui/misc';
+import { NotificationItem, NOTIFICATION_META } from '@/components/layout/NotificationItem';
+import { cn } from '@/lib/utils';
+import { store, useCurrentUser, useDb } from '@/store/store';
+import type { AppNotification } from '@/types';
+
+const GROUPS = ['Assignments', 'Deadlines', 'Overdue', 'Reviews', 'Comments', 'Documents'] as const;
+
+export default function Notifications() {
+  const db = useDb();
+  const me = useCurrentUser();
+  const [show, setShow] = useState<'all' | 'unread'>('all');
+  const [group, setGroup] = useState<string>('');
+  const mine = db.notifications.filter((n) => n.userId === me.id);
+  const unread = mine.filter((n) => !n.read).length;
+  const list = mine.filter((n) => (show === 'unread' ? !n.read : true)).filter((n) => !group || NOTIFICATION_META[n.type].label === group);
+
+  const weekAgo = subDays(new Date(), 7).toISOString();
+  const sections: [string, AppNotification[]][] = [
+    ['Today', list.filter((n) => isToday(parseISO(n.createdAt)))],
+    ['Yesterday', list.filter((n) => isYesterday(parseISO(n.createdAt)))],
+    ['This week', list.filter((n) => !isToday(parseISO(n.createdAt)) && !isYesterday(parseISO(n.createdAt)) && n.createdAt >= weekAgo)],
+    ['Earlier', list.filter((n) => n.createdAt < weekAgo)],
+  ];
+
+  return (
+    <div className="mx-auto max-w-3xl animate-slide-up">
+      <PageHeader
+        title="Notifications"
+        description={unread ? `${unread} unread` : 'You’re all caught up'}
+        actions={
+          <>
+            <Segmented
+              value={show}
+              onChange={setShow}
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'unread', label: `Unread${unread ? ` (${unread})` : ''}` },
+              ]}
+            />
+            <Button onClick={() => store.markAllNotificationsRead()} disabled={!unread}>
+              <CheckCheck /> Mark all read
+            </Button>
+          </>
+        }
+      />
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <Chip active={!group} onClick={() => setGroup('')}>
+          All types
+        </Chip>
+        {GROUPS.map((g) => {
+          const c = mine.filter((n) => NOTIFICATION_META[n.type].label === g).length;
+          return c ? (
+            <Chip key={g} active={group === g} onClick={() => setGroup(group === g ? '' : g)}>
+              {g} <span className="tabular-nums opacity-60">{c}</span>
+            </Chip>
+          ) : null;
+        })}
+      </div>
+
+      <Card className="overflow-hidden">
+        {list.length === 0 ? (
+          <EmptyState icon={<BellOff />} title={show === 'unread' ? 'No unread notifications' : 'No notifications'} description="Assignments, review decisions, deadline reminders and comments will show up here." />
+        ) : (
+          sections
+            .filter(([, items]) => items.length)
+            .map(([label, items]) => (
+              <section key={label}>
+                <h2 className="border-b border-line bg-slate-50/70 px-4 py-1.5 text-2xs font-semibold uppercase tracking-wide text-ink-400">{label}</h2>
+                <ul className="divide-y divide-line">
+                  {items.map((n) => (
+                    <li key={n.id} className="group relative">
+                      <NotificationItem n={n} />
+                      <button
+                        onClick={() => store.markNotificationRead(n.id, !n.read)}
+                        className="absolute right-3 top-9 rounded p-1 text-ink-300 opacity-0 hover:bg-slate-100 hover:text-ink-700 focus:opacity-100 group-hover:opacity-100"
+                        aria-label={n.read ? 'Mark as unread' : 'Mark as read'}
+                        title={n.read ? 'Mark as unread' : 'Mark as read'}
+                      >
+                        {n.read ? <CircleDot className="size-3.5" /> : <Circle className="size-3.5" />}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))
+        )}
+      </Card>
+      <p className="mt-3 flex items-start gap-1.5 text-2xs text-ink-400">
+        <Info className="mt-px size-3 shrink-0" />
+        Notifications are simulated in-app events. No emails, SMS or WhatsApp messages are sent from this demo.
+      </p>
+    </div>
+  );
+}
+
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
+        active ? 'border-ink-900 bg-ink-900 text-white' : 'border-line bg-white text-ink-600 hover:border-slate-300 hover:text-ink-900',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
