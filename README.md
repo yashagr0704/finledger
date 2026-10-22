@@ -12,6 +12,12 @@ npm run dev      # http://localhost:5173
 npm run build    # type-check + production build
 ```
 
+## Hosting
+
+Live demo: https://yashagr0704.github.io/finledger/
+
+`.github/workflows/pages.yml` builds with `npm run build:pages` (hash-based URLs, relative asset paths) and publishes `dist/` to the `gh-pages` branch on every push. GitHub Pages serves that branch (Settings → Pages → Deploy from a branch → `gh-pages` / root).
+
 ## Demo mode
 
 - Use the **Demo** role switcher in the top bar to view the app as the admin (Rohan), a manager/reviewer (Ananya, Vikram) or an employee (Priya, Arjun, …).

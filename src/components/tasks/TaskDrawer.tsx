@@ -164,7 +164,8 @@ function TaskDetail({ task }: { task: Task }) {
             <MenuContent>
               <MenuItem
                 onSelect={() => {
-                  void navigator.clipboard?.writeText(`${window.location.origin}/tasks?task=${task.id}`);
+                  // The drawer is URL-driven, so the current address already points at this task.
+                  void navigator.clipboard?.writeText(window.location.href);
                   toast.success('Link copied');
                 }}
               >
