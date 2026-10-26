@@ -7,6 +7,8 @@ const STATUS_TONE: Record<ClientStatus, string> = {
   inactive: 'bg-slate-100 text-ink-500 ring-slate-200',
 };
 
+const LABEL: Record<ClientStatus, string> = { active: 'Active', onboarding: 'Onboarding', inactive: 'Left the firm' };
+
 export function ClientStatusBadge({ status }: { status: ClientStatus }) {
-  return <span className={cn('inline-flex h-5 items-center rounded-full px-2 text-2xs font-medium capitalize ring-1 ring-inset', STATUS_TONE[status])}>{status}</span>;
+  return <span className={cn('inline-flex h-5 items-center whitespace-nowrap rounded-full px-2 text-2xs font-medium ring-1 ring-inset', STATUS_TONE[status])}>{LABEL[status]}</span>;
 }

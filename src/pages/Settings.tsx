@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Building, CalendarClock, Eye, Info, Layers, Pencil, Play, Plus, Repeat, RotateCcw, ShieldCheck, UserCircle } from 'lucide-react';
+import { Building, CalendarClock, Eye, Info, Layers, Pencil, Play, Plus, Repeat, RotateCcw, ShieldCheck, SlidersHorizontal, UserCircle, UsersRound } from 'lucide-react';
+import { PermissionSwitches, Switch } from '@/components/team/EmployeeDialog';
+import { PERMISSION_META, permissionsOf, ROLE_DEFAULTS } from '@/lib/permissions';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, EmptyState, PageHeader } from '@/components/ui/misc';
@@ -20,7 +22,7 @@ import { store, useCurrentUser, useDb } from '@/store/store';
 import type { TaskTemplate } from '@/types';
 import { brand } from '@/config/brand';
 
-type Section = 'profile' | 'firm' | 'templates' | 'categories' | 'roles' | 'demo';
+type Section = 'profile' | 'firm' | 'config' | 'users' | 'templates' | 'categories' | 'roles' | 'demo';
 
 export default function SettingsPage() {
   const me = useCurrentUser();
@@ -28,10 +30,12 @@ export default function SettingsPage() {
   const admin = canManageFirm(me);
   const sections: { id: Section; label: string; icon: React.ReactNode; show: boolean }[] = [
     { id: 'profile', label: 'My profile', icon: <UserCircle />, show: true },
-    { id: 'firm', label: 'Firm', icon: <Building />, show: true },
+    { id: 'firm', label: 'Company profile', icon: <Building />, show: true },
+    { id: 'config', label: 'Configuration', icon: <SlidersHorizontal />, show: admin },
+    { id: 'users', label: 'Users & roles', icon: <UsersRound />, show: admin },
     { id: 'templates', label: 'Recurring templates', icon: <Repeat />, show: me.role !== 'employee' },
     { id: 'categories', label: 'Task categories', icon: <Layers />, show: true },
-    { id: 'roles', label: 'Roles & permissions', icon: <ShieldCheck />, show: true },
+    { id: 'roles', label: 'Permission reference', icon: <ShieldCheck />, show: true },
     { id: 'demo', label: 'Demo data', icon: <RotateCcw />, show: true },
   ];
   const visible = sections.filter((s) => s.show);
@@ -60,6 +64,8 @@ export default function SettingsPage() {
         <div className="min-w-0">
           {section === 'profile' && <ProfileSection />}
           {section === 'firm' && <FirmSection />}
+          {section === 'config' && <ConfigSection />}
+          {section === 'users' && <UsersSection />}
           {section === 'templates' && <TemplatesSection />}
           {section === 'categories' && <CategoriesSection />}
           {section === 'roles' && <RolesSection />}
@@ -375,23 +381,24 @@ function CategoriesSection() {
 
 function RolesSection() {
   const rows: [string, boolean, boolean, boolean][] = [
-    ['View firm-wide dashboard & all tasks', true, false, false],
+    ['View all pending tasks (firm-wide)', true, false, false],
     ['View assigned clients & team tasks', true, true, false],
     ['View own tasks and assigned clients', true, true, true],
-    ['Create & edit tasks', true, true, false],
-    ['Assign / bulk reassign work', true, true, false],
+    ['Create tasks for themselves', true, true, true],
+    ['Create tasks for others / bulk reassign', true, true, false],
     ['Update status, checklist, comments, files', true, true, true],
     ['Approve or return submitted work', true, true, false],
-    ['Add clients', true, false, false],
-    ['Edit clients (as relationship manager)', true, true, false],
-    ['Invite members & change roles', true, false, false],
-    ['Recurring templates & firm settings', true, false, false],
-    ['Reports & team workload', true, true, false],
-    ['Delete tasks', true, false, false],
+    ['Add / alter clients', true, false, false],
+    ['Manage masters (groups, services, referrers)', true, false, false],
+    ['Billing', true, false, false],
+    ['WhatsApp & broadcasts', true, true, false],
+    ['Reports', true, true, false],
+    ['Add employees & change roles', true, false, false],
+    ['Delete records', true, false, false],
   ];
   return (
     <Card>
-      <CardHeader title="Roles & permissions" description="Enforced inside every application action, not only by hiding navigation." />
+      <CardHeader title="Permission reference" description="Default access per role. Admins can change any of these per user under Users & roles." />
       <div className="overflow-x-auto">
         <table className="w-full min-w-[520px] text-left">
           <thead>
@@ -468,3 +475,147 @@ function DemoSection() {
   );
 }
 
+
+function ConfigSection() {
+  const db = useDb();
+  const [form, setForm] = useState({
+    whatsappNumber: db.firm.whatsappNumber ?? '',
+    invoicePrefix: db.firm.invoicePrefix ?? '',
+    defaultGstRate: db.firm.defaultGstRate ?? 18,
+    gstin: db.firm.gstin ?? '',
+    address: db.firm.address ?? '',
+    atRiskDays: db.firm.atRiskDays,
+  });
+  const [channels, setChannels] = useState({ inApp: true, email: true, whatsapp: false, dailyDigest: true });
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Configuration" description="Defaults used across billing, reminders and messaging." />
+        <form
+          className="grid gap-4 p-4 sm:grid-cols-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (store.updateFirm({ ...form, defaultGstRate: Number(form.defaultGstRate), atRiskDays: Number(form.atRiskDays) })) toast.success('Configuration saved');
+          }}
+        >
+          <Field label="Firm GSTIN" htmlFor="cf-gstin" hint="Printed on invoices">
+            <Input id="cf-gstin" className="font-mono uppercase" value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })} />
+          </Field>
+          <Field label="WhatsApp business number" htmlFor="cf-wa">
+            <Input id="cf-wa" value={form.whatsappNumber} onChange={(e) => setForm({ ...form, whatsappNumber: e.target.value })} />
+          </Field>
+          <Field label="Invoice number prefix" htmlFor="cf-prefix" hint={`e.g. ${form.invoicePrefix || 'INV'}/2026-27/0001`}>
+            <Input id="cf-prefix" value={form.invoicePrefix} onChange={(e) => setForm({ ...form, invoicePrefix: e.target.value.toUpperCase() })} />
+          </Field>
+          <Field label="Default GST rate on fees (%)" htmlFor="cf-gst">
+            <Input id="cf-gst" type="number" min={0} max={28} value={form.defaultGstRate} onChange={(e) => setForm({ ...form, defaultGstRate: Number(e.target.value) })} />
+          </Field>
+          <Field label="Deadline turns yellow (days before due)" htmlFor="cf-risk" hint="Used for “at risk” tasks and the calendar dots.">
+            <Input id="cf-risk" type="number" min={1} max={14} value={form.atRiskDays} onChange={(e) => setForm({ ...form, atRiskDays: Number(e.target.value) })} />
+          </Field>
+          <Field label="Registered address" htmlFor="cf-addr" className="sm:col-span-2">
+            <Input id="cf-addr" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          </Field>
+          <div className="flex justify-end sm:col-span-2">
+            <Button type="submit" variant="primary">
+              Save configuration
+            </Button>
+          </div>
+        </form>
+      </Card>
+      <Card>
+        <CardHeader title="Notification channels" description="How reminders and alerts reach your team (demo — only in-app works today)." />
+        <ul className="divide-y divide-line">
+          {(
+            [
+              ['inApp', 'In-app notifications', 'Bell icon and Notifications page'],
+              ['email', 'Email', 'Assignments, review decisions and deadline reminders'],
+              ['whatsapp', 'WhatsApp to staff', 'Daily due-today summary on WhatsApp'],
+              ['dailyDigest', 'Morning digest', 'One summary of the day’s deadlines at 9:00 AM'],
+            ] as [keyof typeof channels, string, string][]
+          ).map(([k, label, hint]) => (
+            <li key={k} className="flex items-center gap-3 px-4 py-2.5">
+              <div className="flex-1">
+                <p className="text-[13px] font-medium text-ink-900">
+                  {label} {k !== 'inApp' && <span className="ml-1 rounded bg-slate-100 px-1 text-[10px] font-medium text-ink-500">Planned</span>}
+                </p>
+                <p className="text-2xs text-ink-500">{hint}</p>
+              </div>
+              <Switch checked={channels[k]} onChange={(v) => (setChannels({ ...channels, [k]: v }), toast.success(`${label} ${v ? 'on' : 'off'}`))} label={label} disabled={k === 'inApp'} />
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </div>
+  );
+}
+
+function UsersSection() {
+  const db = useDb();
+  const [open, setOpen] = useState<string | null>(null);
+  const users = db.users.filter((u) => u.status !== 'deactivated');
+  const keys = Object.keys(PERMISSION_META) as (keyof typeof PERMISSION_META)[];
+  return (
+    <Card>
+      <CardHeader title="Users & roles" description="Turn individual permissions on or off. Changes apply immediately — switch to that user in the demo menu to see the effect." />
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px] text-left">
+          <thead>
+            <tr className="border-b border-line text-2xs font-medium uppercase tracking-wide text-ink-400">
+              <th className="px-4 py-2 font-medium">User</th>
+              {keys.map((k) => (
+                <th key={k} className="px-2 py-2 text-center font-medium normal-case tracking-normal" title={PERMISSION_META[k].description}>
+                  {PERMISSION_META[k].label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {users.map((u) => {
+              const eff = permissionsOf(u);
+              return (
+                <tr key={u.id} className="hover:bg-slate-50/60">
+                  <td className="px-4 py-2">
+                    <button onClick={() => setOpen(open === u.id ? null : u.id)} className="flex items-center gap-2 text-left">
+                      <Avatar user={u} size="sm" />
+                      <span>
+                        <span className="block text-[13px] font-medium text-ink-900">{u.name}</span>
+                        <span className="block text-2xs text-ink-500">
+                          {ROLE_META[u.role].label}
+                          {u.permissions && Object.entries(u.permissions).some(([k, v]) => ROLE_DEFAULTS[u.role][k as keyof typeof PERMISSION_META] !== v) && ' · custom'}
+                        </span>
+                      </span>
+                    </button>
+                  </td>
+                  {keys.map((k) => (
+                    <td key={k} className="px-2 py-2 text-center">
+                      <Switch
+                        checked={eff[k]}
+                        disabled={u.role === 'admin'}
+                        label={`${PERMISSION_META[k].label} for ${u.name}`}
+                        onChange={(v) => store.updateMember(u.id, { permissions: { ...u.permissions, [k]: v } }) && toast.success(`${PERMISSION_META[k].label} ${v ? 'allowed' : 'removed'} for ${u.name.split(' ')[0]}`)}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {open && (
+        <div className="border-t border-line p-4">
+          <PermissionSwitches
+            role={db.users.find((u) => u.id === open)!.role}
+            value={db.users.find((u) => u.id === open)!.permissions ?? {}}
+            effective={permissionsOf(db.users.find((u) => u.id === open)!)}
+            onChange={(p) => store.updateMember(open, { permissions: p })}
+          />
+        </div>
+      )}
+      <p className="flex items-start gap-1.5 border-t border-line px-4 py-2.5 text-2xs text-ink-500">
+        <Info className="mt-px size-3 shrink-0" /> Admins always have every permission. In production these switches are enforced by the server.
+      </p>
+    </Card>
+  );
+}

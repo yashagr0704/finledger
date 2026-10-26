@@ -17,6 +17,11 @@ import {
   Plus,
   Repeat,
   ShieldAlert,
+  Ban,
+  FileWarning,
+  HardDrive,
+  KeyRound,
+  MessageCircle,
   User as UserIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -33,7 +38,7 @@ import { formatDate, todayKey } from '@/lib/dates';
 import { useLookup } from '@/lib/lookup';
 import { byUrgency, isOpen, isOverdue } from '@/lib/metrics';
 import { upcomingPeriods } from '@/lib/periods';
-import { canCreateTask, canEditClient, canManageDocuments, canViewClient, taskableClients, visibleTasks } from '@/lib/permissions';
+import { canCreateTask, canEditClient, canManageDocuments, canUseWhatsApp, canViewClient, taskableClients, visibleTasks } from '@/lib/permissions';
 import { sortTasks } from '@/lib/taskFilters';
 import { cn, formatFileSize } from '@/lib/utils';
 import { store, useCurrentUser, useDb } from '@/store/store';
@@ -114,6 +119,18 @@ export default function ClientDetail() {
           </div>
         </div>
         <div className="flex gap-2">
+          {canUseWhatsApp(me) && (
+            <Button asChild>
+              <Link to={`/whatsapp?tab=chats&client=${client.id}`}>
+                <MessageCircle /> WhatsApp
+              </Link>
+            </Button>
+          )}
+          <Button asChild>
+            <Link to={`/drive?client=${client.id}`}>
+              <HardDrive /> Drive
+            </Link>
+          </Button>
           {canEditClient(me, client) && (
             <Button onClick={() => openClientForm(client.id)}>
               <Pencil /> Edit
@@ -127,6 +144,19 @@ export default function ClientDetail() {
         </div>
       </div>
 
+      {client.exitDate && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+          <Ban className="size-4 shrink-0" />
+          <span>
+            Client left the firm on <b>{formatDate(client.exitDate)}</b>. Updates, WhatsApp messages and notifications to this client are switched off.
+          </span>
+          {canEditClient(me, client) && (
+            <Button size="sm" className="ml-auto" onClick={() => store.setClientExit(client.id, undefined) && toast.success(`${client.name} re-activated`)}>
+              Re-activate client
+            </Button>
+          )}
+        </div>
+      )}
       <Tabs
         className="mb-4"
         value={tab}
@@ -174,6 +204,10 @@ function OverviewTab({ client, tasks }: { client: Client; tasks: ReturnType<type
   const pendingDocs = db.documents.filter((d) => d.clientId === client.id && d.status === 'pending');
   const rm = users.get(client.relationshipManagerId);
   const team = client.teamIds.map((id) => users.get(id)).filter(Boolean);
+  const referrer = db.referrers.find((r) => r.id === client.referredById);
+  const services = db.services.filter((s) => client.serviceIds?.includes(s.id));
+  const notices = db.notices.filter((n) => n.clientId === client.id && n.status !== 'closed');
+  const dscs = db.dscs.filter((d) => d.clientId === client.id);
 
   return (
     <div className="grid gap-4 xl:grid-cols-3">
@@ -219,23 +253,40 @@ function OverviewTab({ client, tasks }: { client: Client; tasks: ReturnType<type
             <Detail icon={<Phone />} label="Phone" value={client.phone || '—'} />
             <Detail icon={<MapPin />} label="City" value={client.city || '—'} />
             <div className="grid grid-cols-2 gap-2 border-t border-line pt-2.5">
-              <div>
-                <dt className="text-2xs text-ink-400">PAN</dt>
-                <dd className="font-mono text-ink-800">{client.pan ?? '—'}</dd>
-              </div>
-              <div>
-                <dt className="text-2xs text-ink-400">GSTIN</dt>
-                <dd className="font-mono text-ink-800">{client.gstin ?? '—'}</dd>
-              </div>
-              <div>
-                <dt className="text-2xs text-ink-400">Client since</dt>
-                <dd className="text-ink-800">{formatDate(client.since, 'MMM yyyy')}</dd>
-              </div>
-              <div>
-                <dt className="text-2xs text-ink-400">Entity</dt>
-                <dd className="text-ink-800">{client.entityType}</dd>
-              </div>
+              {(
+                [
+                  ['Billing name', client.billingName ?? client.name],
+                  ['Trade name', client.tradeName ?? '—'],
+                  ['File no.', client.fileNo ?? '—'],
+                  ['Entity', client.entityType],
+                  ['PAN', client.pan ?? '—', true],
+                  ['GSTIN', client.gstin ?? '—', true],
+                  [client.entityType === 'Individual' ? 'Date of birth' : 'Incorporated', client.incorporatedOn ? formatDate(client.incorporatedOn) : '—'],
+                  ['Client since', formatDate(client.since, 'MMM yyyy')],
+                  ['Taxes applicable', (client.taxesApplicable ?? []).join(', ') || '—'],
+                  ['Referred by', referrer ? referrer.name : '—'],
+                ] as [string, string, boolean?][]
+              ).map(([k, v, mono]) => (
+                <div key={k} className="min-w-0">
+                  <dt className="text-2xs text-ink-400">{k}</dt>
+                  <dd className={cn('truncate text-ink-800', mono && 'font-mono')} title={v}>
+                    {v}
+                  </dd>
+                </div>
+              ))}
             </div>
+            {(client.customFields ?? []).length > 0 && (
+              <div className="grid grid-cols-2 gap-2 border-t border-line pt-2.5">
+                {client.customFields!.map((f) => (
+                  <div key={f.label} className="min-w-0">
+                    <dt className="text-2xs text-ink-400">{f.label}</dt>
+                    <dd className="truncate text-ink-800" title={f.value}>
+                      {f.value}
+                    </dd>
+                  </div>
+                ))}
+              </div>
+            )}
             {client.notes && <p className="rounded-md bg-slate-50 p-2.5 leading-relaxed text-ink-600">{client.notes}</p>}
             <p className="text-2xs text-ink-400">Identifiers shown are fictional demo values.</p>
           </dl>
@@ -266,6 +317,67 @@ function OverviewTab({ client, tasks }: { client: Client; tasks: ReturnType<type
             {!team.length && <li className="px-4 py-3 text-xs text-ink-400">No team members assigned.</li>}
           </ul>
         </Card>
+
+        {(client.contacts ?? []).length > 0 && (
+          <Card>
+            <CardHeader title="Contact persons" />
+            <ul className="divide-y divide-line">
+              {client.contacts!.map((c) => (
+                <li key={c.name} className="px-4 py-2">
+                  <p className="text-xs font-medium text-ink-900">
+                    {c.name} <span className="font-normal text-ink-500">· {c.designation}</span>
+                  </p>
+                  <p className="text-2xs text-ink-500">
+                    {c.phone} · {c.email}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader title="Services" description={`${services.length} subscribed`} />
+          <div className="flex flex-wrap gap-1.5 px-4 py-3">
+            {services.length ? (
+              services.map((s) => (
+                <span key={s.id} className="rounded border border-line bg-white px-1.5 py-0.5 text-2xs font-medium text-ink-700">
+                  {s.name}
+                </span>
+              ))
+            ) : (
+              <span className="text-xs text-ink-400">No services selected.</span>
+            )}
+          </div>
+        </Card>
+
+        {(notices.length > 0 || dscs.length > 0) && (
+          <Card>
+            <CardHeader title="Notices & DSC" />
+            <ul className="divide-y divide-line">
+              {notices.map((n) => (
+                <li key={n.id}>
+                  <Link to="/notices" className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50">
+                    <FileWarning className="size-3.5 shrink-0 text-red-500" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-ink-800">
+                      {n.source} {n.form} — {n.subject}
+                    </span>
+                    <span className="shrink-0 text-2xs text-ink-500">by {formatDate(n.dueOn, 'd MMM')}</span>
+                  </Link>
+                </li>
+              ))}
+              {dscs.map((d) => (
+                <li key={d.id}>
+                  <Link to="/dsc" className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50">
+                    <KeyRound className="size-3.5 shrink-0 text-ink-400" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-ink-800">DSC · {d.holder}</span>
+                    <span className={cn('shrink-0 text-2xs', d.expiresOn < todayKey() ? 'text-red-600' : 'text-ink-500')}>valid till {formatDate(d.expiresOn, 'd MMM yy')}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
 
         <Card>
           <CardHeader title="Pending document requests" icon={<FileQuestion />} />

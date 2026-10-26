@@ -20,6 +20,7 @@ export function KpiCard({
   to,
   hint,
   emphasize,
+  trend,
 }: {
   label: string;
   value: number | string;
@@ -28,6 +29,8 @@ export function KpiCard({
   to: string;
   hint?: ReactNode;
   emphasize?: boolean;
+  /** Percentage change vs last month; `goodWhenUp` decides the colour. */
+  trend?: { pct: number; goodWhenUp: boolean };
 }) {
   return (
     <Link
@@ -42,7 +45,21 @@ export function KpiCard({
         <span className={cn('flex size-6 items-center justify-center rounded-md [&_svg]:size-3.5', TONES[tone])}>{icon}</span>
       </div>
       <div className="mt-2 flex items-end justify-between gap-2">
-        <span className={cn('text-2xl font-semibold tabular-nums tracking-tight', emphasize ? 'text-red-600' : 'text-ink-900')}>{value}</span>
+        <span className="flex items-baseline gap-2">
+          <span className={cn('text-2xl font-semibold tabular-nums tracking-tight', emphasize ? 'text-red-600' : 'text-ink-900')}>{value}</span>
+          {trend && Number.isFinite(trend.pct) && (
+            <span
+              className={cn(
+                'text-xs font-semibold tabular-nums',
+                trend.pct === 0 ? 'text-ink-400' : trend.pct > 0 === trend.goodWhenUp ? 'text-emerald-600' : 'text-red-600',
+              )}
+              title="vs last month"
+            >
+              {trend.pct > 0 ? '+' : ''}
+              {trend.pct}%
+            </span>
+          )}
+        </span>
         <ArrowRight className="mb-1 size-3.5 -translate-x-1 text-ink-300 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
       </div>
       {hint && <div className="mt-0.5 truncate text-2xs text-ink-500">{hint}</div>}

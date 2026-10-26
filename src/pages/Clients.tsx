@@ -107,7 +107,7 @@ export default function Clients() {
             label="Status"
             selected={statuses}
             onChange={setStatuses}
-            options={(['active', 'onboarding', 'inactive'] as const).map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1), count: rows.filter((r) => r.client.status === s).length }))}
+            options={(['active', 'onboarding', 'inactive'] as const).map((s) => ({ value: s, label: { active: 'Active', onboarding: 'Onboarding', inactive: 'Left the firm' }[s], count: rows.filter((r) => r.client.status === s).length }))}
           />
           <FilterMenu label="Relationship manager" selected={rms} onChange={setRms} options={managers.map((u) => ({ value: u.id, label: u.name, icon: <Avatar user={u} size="xs" /> }))} />
           {Boolean(q || types.length || statuses.length || rms.length) && (

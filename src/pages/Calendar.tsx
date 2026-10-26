@@ -13,7 +13,8 @@ import {
   startOfMonth,
   startOfWeek,
 } from 'date-fns';
-import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Info, List, SearchX } from 'lucide-react';
+import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, CircleDot, Info, List, SearchX } from 'lucide-react';
+import { DeadlineCalendar } from '@/components/dashboard/DeadlineCalendar';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, EmptyState, PageHeader, Segmented } from '@/components/ui/misc';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu';
@@ -29,7 +30,7 @@ import { useCurrentUser, useDb } from '@/store/store';
 import { useUI } from '@/store/ui';
 import type { Task } from '@/types';
 
-type View = 'month' | 'week' | 'agenda';
+type View = 'month' | 'week' | 'agenda' | 'dots';
 const list = (v: string | null) => (v ? v.split(',').filter(Boolean) : []);
 
 export default function CalendarPage() {
@@ -95,6 +96,7 @@ export default function CalendarPage() {
             onChange={(v) => set({ view: v })}
             options={[
               { value: 'month', label: 'Month', icon: <CalendarDays /> },
+              { value: 'dots', label: 'Status dots', icon: <CircleDot /> },
               { value: 'week', label: 'Week', icon: <CalendarRange /> },
               { value: 'agenda', label: 'Agenda', icon: <List /> },
             ]}
@@ -110,6 +112,8 @@ export default function CalendarPage() {
       <div className="grid gap-4 xl:grid-cols-[1fr_300px]">
         <Card className="min-w-0 overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 border-b border-line p-3">
+            {view !== 'dots' && (
+              <>
             <div className="flex items-center gap-1">
               <Button size="icon" variant="ghost" onClick={() => step(-1)} aria-label="Previous">
                 <ChevronLeft />
@@ -122,6 +126,8 @@ export default function CalendarPage() {
               </Button>
             </div>
             <h2 className="min-w-[160px] text-[15px] font-semibold text-ink-900">{title}</h2>
+              </>
+            )}
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <FilterMenu label="Client" searchable selected={f.client} onChange={(v) => set({ client: v })} options={visibleClients(db, me).map((c) => ({ value: c.id, label: c.name }))} />
               <FilterMenu label="Employee" searchable selected={f.assignee} onChange={(v) => set({ assignee: v })} options={people.map((u) => ({ value: u.id, label: u.name, icon: <Avatar user={u} size="xs" /> }))} />
@@ -142,6 +148,7 @@ export default function CalendarPage() {
           {view === 'month' && <MonthView anchor={anchor} byDay={byDay} />}
           {view === 'week' && <WeekView anchor={anchor} byDay={byDay} />}
           {view === 'agenda' && <AgendaView anchor={anchor} tasks={tasks} />}
+          {view === 'dots' && <DeadlineCalendar tasks={tasks} size="lg" />}
           <div className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2">
             {STATUS_ORDER.map((s) => (
               <span key={s} className="flex items-center gap-1.5 text-2xs text-ink-500">

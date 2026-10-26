@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UIProvider } from '@/store/ui';
 import { useCurrentUser } from '@/store/store';
-import { canViewReports, canViewTeam } from '@/lib/permissions';
+import { canAccessBilling, canUseWhatsApp, canViewReports, canViewTeam } from '@/lib/permissions';
 import type { User } from '@/types';
 
 const Overview = lazy(() => import('@/pages/Overview'));
@@ -23,6 +23,15 @@ const TeamMember = lazy(() => import('@/pages/TeamMember'));
 const Reports = lazy(() => import('@/pages/Reports'));
 const Notifications = lazy(() => import('@/pages/Notifications'));
 const SettingsPage = lazy(() => import('@/pages/Settings'));
+const NotesPage = lazy(() => import('@/pages/Notes'));
+const PortalsPage = lazy(() => import('@/pages/Portals'));
+const NoticesPage = lazy(() => import('@/pages/Notices'));
+const BillingPage = lazy(() => import('@/pages/Billing'));
+const DscPage = lazy(() => import('@/pages/Dsc'));
+const DocRegisterPage = lazy(() => import('@/pages/DocRegister'));
+const WhatsAppPage = lazy(() => import('@/pages/WhatsApp'));
+const DrivePage = lazy(() => import('@/pages/Drive'));
+const MastersPage = lazy(() => import('@/pages/Masters'));
 
 function PageSkeleton() {
   return (
@@ -97,6 +106,16 @@ export default function App() {
                         <Route path="reports" element={<Guard allow={canViewReports}><Reports /></Guard>} />
                         <Route path="notifications" element={<Notifications />} />
                         <Route path="settings" element={<SettingsPage />} />
+                        <Route path="notes" element={<NotesPage />} />
+                        <Route path="portals" element={<PortalsPage />} />
+                        <Route path="notices" element={<NoticesPage />} />
+                        <Route path="billing" element={<Guard allow={canAccessBilling}><BillingPage /></Guard>} />
+                        <Route path="dsc" element={<DscPage />} />
+                        <Route path="documents-register" element={<DocRegisterPage />} />
+                        <Route path="whatsapp" element={<Guard allow={canUseWhatsApp}><WhatsAppPage /></Guard>} />
+                        <Route path="drive" element={<DrivePage />} />
+                        <Route path="masters/:tab" element={<MastersPage />} />
+                        <Route path="masters" element={<Navigate to="/masters/services" replace />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                       </Routes>
                     </Suspense>

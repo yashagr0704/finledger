@@ -2,6 +2,7 @@ import { addDays, addHours, differenceInCalendarDays, endOfMonth, format, parseI
 import { brand } from '@/config/brand';
 import { toDateKey } from '@/lib/dates';
 import { fyLabel, monthLabel, quarterLabel } from '@/lib/periods';
+import { createExtras } from './seedExtras';
 import type {
   Activity,
   AppNotification,
@@ -19,7 +20,7 @@ import type {
   User,
 } from '@/types';
 
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 
 /** Deterministic PRNG so the demo looks the same on every reset. */
 function mulberry32(seed: number) {
@@ -33,7 +34,7 @@ function mulberry32(seed: number) {
   };
 }
 
-const users: User[] = [
+const baseUsers: User[] = [
   { id: 'u_rohan', name: 'Rohan Mehta', email: 'rohan@mehtaiyer.demo', phone: '+91 98200 11001', role: 'admin', title: 'Managing Partner', status: 'active', joinedAt: '2014-04-01', capacityHours: 30, avatarHue: 245 },
   { id: 'u_ananya', name: 'Ananya Iyer', email: 'ananya@mehtaiyer.demo', phone: '+91 98200 11002', role: 'manager', title: 'Audit & Assurance Manager', status: 'active', joinedAt: '2017-06-12', capacityHours: 40, avatarHue: 330 },
   { id: 'u_vikram', name: 'Vikram Desai', email: 'vikram@mehtaiyer.demo', phone: '+91 98200 11003', role: 'manager', title: 'Tax Manager', status: 'active', joinedAt: '2018-01-08', capacityHours: 40, avatarHue: 200 },
@@ -46,7 +47,7 @@ const users: User[] = [
   { id: 'u_isha', name: 'Isha Bansal', email: 'isha@mehtaiyer.demo', phone: '+91 98200 11010', role: 'employee', title: 'Associate — Accounting', managerId: 'u_ananya', status: 'invited', joinedAt: toDateKey(subDays(new Date(), 2)), capacityHours: 45, avatarHue: 60 },
 ];
 
-const categories: Category[] = [
+const baseCategories: Category[] = [
   { id: 'gst', name: 'GST', colorSlot: 0, isFiling: true },
   { id: 'itr', name: 'Income Tax', colorSlot: 1, isFiling: true },
   { id: 'tds', name: 'TDS', colorSlot: 2, isFiling: true },
@@ -57,7 +58,7 @@ const categories: Category[] = [
   { id: 'adv', name: 'Advisory', colorSlot: 7, isFiling: false },
 ];
 
-const clients: Client[] = [
+const baseClients: Client[] = [
   { id: 'c_sunrise', code: 'SUN-001', name: 'Sunrise Textiles Pvt Ltd', entityType: 'Private Limited', industry: 'Textile manufacturing', contactName: 'Harish Agarwal', email: 'accounts@sunrisetextiles.demo', phone: '+91 99250 40001', city: 'Surat', pan: 'AAACS0001D', gstin: '24AAACS0001D1Z0', relationshipManagerId: 'u_vikram', teamIds: ['u_arjun', 'u_neha', 'u_priya', 'u_farhan'], status: 'active', since: '2016-05-10', notes: 'Large GST volume; exports under LUT. Prefers WhatsApp updates from the finance head.' },
   { id: 'c_kaveri', code: 'KAV-002', name: 'Kaveri Foods LLP', entityType: 'LLP', industry: 'Food processing', contactName: 'Lakshmi Narayan', email: 'finance@kaverifoods.demo', phone: '+91 99000 40002', city: 'Bengaluru', pan: 'AAKFK0002D', gstin: '29AAKFK0002D1Z1', relationshipManagerId: 'u_ananya', teamIds: ['u_kavya', 'u_siddharth', 'u_priya', 'u_farhan'], status: 'active', since: '2019-08-22' },
   { id: 'c_arora', code: 'ARO-003', name: 'Arora & Sons', entityType: 'Partnership', industry: 'Wholesale trade', contactName: 'Gurpreet Arora', email: 'arora.sons@example.demo', phone: '+91 98110 40003', city: 'New Delhi', pan: 'AAFFA0003D', gstin: '07AAFFA0003D1Z2', relationshipManagerId: 'u_vikram', teamIds: ['u_arjun', 'u_siddharth'], status: 'active', since: '2015-02-01' },
@@ -106,6 +107,10 @@ interface Spec {
 
 export function createSeed(): Database {
   const now = new Date();
+  // Fresh copies: the seed mutates these while adding demo-only fields.
+  const users = structuredClone(baseUsers);
+  const clients = structuredClone(baseClients);
+  const categories = structuredClone(baseCategories);
   const rand = mulberry32(42);
   const pick = <T,>(arr: T[]) => arr[Math.floor(rand() * arr.length)];
   const day = (offset: number) => toDateKey(addDays(now, offset));
@@ -467,18 +472,21 @@ export function createSeed(): Database {
   activities.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   notifications.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
+  const firm = {
+    name: 'Mehta Iyer & Associates',
+    legalName: 'Mehta Iyer & Associates, Chartered Accountants',
+    registrationNo: 'FRN 000000W (demo)',
+    city: 'Mumbai',
+    email: 'office@mehtaiyer.demo',
+    phone: '+91 22 4000 0000',
+    atRiskDays: 3,
+  };
+  const extras = createExtras({ now, rand, users, clients, tasks, firm });
+
   return {
     version: DB_VERSION,
     seededAt: now.toISOString(),
-    firm: {
-      name: 'Mehta Iyer & Associates',
-      legalName: 'Mehta Iyer & Associates, Chartered Accountants',
-      registrationNo: 'FRN 000000W (demo)',
-      city: 'Mumbai',
-      email: 'office@mehtaiyer.demo',
-      phone: '+91 22 4000 0000',
-      atRiskDays: 3,
-    },
+    firm,
     users,
     clients,
     categories,
@@ -489,6 +497,7 @@ export function createSeed(): Database {
     documents,
     reviews,
     templates,
+    ...extras,
   };
 }
 

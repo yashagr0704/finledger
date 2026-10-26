@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowDown, MailCheck, MoreHorizontal, Search, ShieldCheck, UserMinus, UserPlus, UserRoundCheck, Users } from 'lucide-react';
+import { ArrowDown, MailCheck, MoreHorizontal, Pencil, Search, ShieldCheck, Trash2, UserMinus, UserPlus, UserRoundCheck, Users } from 'lucide-react';
+import { EmployeeDialog } from '@/components/team/EmployeeDialog';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, EmptyState, PageHeader, Segmented } from '@/components/ui/misc';
@@ -24,6 +25,7 @@ export default function Team() {
   const navigate = useNavigate();
   const { setInviteOpen } = useUI();
   const { confirm, dialog } = useConfirm();
+  const [editing, setEditing] = useState<User | null>(null);
   const [role, setRole] = useState<'all' | Role>('all');
   const [sort, setSort] = useState<SortKey>('workload');
   const [q, setQ] = useState('');
@@ -80,13 +82,14 @@ export default function Team() {
   return (
     <div className="animate-slide-up">
       {dialog}
+      <EmployeeDialog open={!!editing} user={editing ?? undefined} onClose={() => setEditing(null)} />
       <PageHeader
-        title="Team"
+        title="Employees"
         description={`${rows.filter((r) => r.user.status === 'active').length} active members · ${rows.filter((r) => r.user.status === 'invited').length} pending invites`}
         actions={
           admin && (
             <Button variant="primary" onClick={() => setInviteOpen(true)}>
-              <UserPlus /> Invite member
+              <UserPlus /> Add employee
             </Button>
           )
         }
@@ -166,6 +169,10 @@ export default function Team() {
                             </Button>
                           </MenuTrigger>
                           <MenuContent>
+                            <MenuItem onSelect={() => setEditing(u)}>
+                              <Pencil /> Edit details & permissions
+                            </MenuItem>
+                            <MenuSeparator />
                             <MenuLabel>Change role</MenuLabel>
                             {(['admin', 'manager', 'employee'] as Role[]).map((r) => (
                               <MenuItem key={r} disabled={u.role === r} onSelect={() => changeRole(u, r)}>
@@ -185,24 +192,39 @@ export default function Team() {
                             )}
                             {u.status === 'deactivated' ? (
                               <MenuItem onSelect={() => store.updateMember(u.id, { status: 'active' }) && toast.success(`${u.name} reactivated`)}>
-                                <UserRoundCheck /> Reactivate
+                                <UserRoundCheck /> Restore
                               </MenuItem>
                             ) : (
                               <MenuItem
                                 className="text-red-600"
                                 onSelect={() =>
                                   confirm({
-                                    title: `Deactivate ${u.name}?`,
-                                    description: 'They will lose access and can no longer be assigned work. Open tasks must be reassigned first.',
+                                    title: `Delete ${u.name} temporarily?`,
+                                    description: 'Their account is deactivated: they lose access and can’t be assigned work, but their history is kept and you can restore them any time. Open tasks must be reassigned first.',
                                     confirmLabel: 'Deactivate',
                                     tone: 'danger',
                                     onConfirm: () => store.updateMember(u.id, { status: 'deactivated' }) && toast.success(`${u.name} deactivated`),
                                   })
                                 }
                               >
-                                <UserMinus /> Deactivate
+                                <UserMinus /> Delete (temporary)
                               </MenuItem>
                             )}
+                            <MenuItem
+                              className="text-red-600"
+                              disabled={u.id === me.id}
+                              onSelect={() =>
+                                confirm({
+                                  title: `Delete ${u.name} permanently?`,
+                                  description: 'This removes the employee record completely and cannot be undone. Only possible when they have no tasks in the system — otherwise use temporary delete.',
+                                  confirmLabel: 'Delete permanently',
+                                  tone: 'danger',
+                                  onConfirm: () => store.deleteMember(u.id) && toast.success(`${u.name} deleted`),
+                                })
+                              }
+                            >
+                              <Trash2 /> Delete permanently
+                            </MenuItem>
                           </MenuContent>
                         </Menu>
                       )}

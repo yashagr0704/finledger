@@ -21,6 +21,7 @@ const schema = z
     description: z.string().max(2000, 'Description is too long'),
     clientId: z.string().min(1, 'Select a client'),
     categoryId: z.string().min(1, 'Select a category'),
+    serviceId: z.string().optional(),
     assigneeId: z.string().min(1, 'Select an assignee'),
     requiresReview: z.boolean(),
     reviewerId: z.string().optional(),
@@ -73,6 +74,7 @@ function TaskForm({ onDone }: { onDone: (createdId?: string) => void }) {
         description: editing.description,
         clientId: editing.clientId,
         categoryId: editing.categoryId,
+        serviceId: editing.serviceId ?? '',
         assigneeId: editing.assigneeId,
         requiresReview: editing.requiresReview,
         reviewerId: editing.reviewerId ?? '',
@@ -87,9 +89,10 @@ function TaskForm({ onDone }: { onDone: (createdId?: string) => void }) {
         description: '',
         clientId: taskForm?.defaults?.clientId ?? '',
         categoryId: taskForm?.defaults?.categoryId ?? '',
+        serviceId: '',
         assigneeId: taskForm?.defaults?.assigneeId ?? '',
         requiresReview: true,
-        reviewerId: me.role === 'manager' ? me.id : '',
+        reviewerId: me.role === 'manager' ? me.id : me.role === 'employee' ? (me.managerId ?? '') : '',
         priority: 'medium',
         startDate: todayKey(),
         dueDate: taskForm?.defaults?.dueDate ?? toDateKey(addDays(new Date(), 7)),
@@ -108,6 +111,8 @@ function TaskForm({ onDone }: { onDone: (createdId?: string) => void }) {
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: defaults });
   const { fields, append, remove } = useFieldArray({ control, name: 'checklist' });
   const requiresReview = watch('requiresReview');
+  const categoryId = watch('categoryId');
+  const groupServices = db.services.filter((s) => s.groupId === categoryId);
   const clientId = watch('clientId');
 
   // Suggest the client's relationship manager as reviewer when creating.
@@ -137,7 +142,7 @@ function TaskForm({ onDone }: { onDone: (createdId?: string) => void }) {
   };
 
   const onSubmit = (v: FormValues) => {
-    const input = { ...v, reviewerId: v.requiresReview ? v.reviewerId : undefined, checklist: v.checklist.map((c) => c.label.trim()).filter(Boolean) };
+    const input = { ...v, serviceId: v.serviceId || undefined, reviewerId: v.requiresReview ? v.reviewerId : undefined, checklist: v.checklist.map((c) => c.label.trim()).filter(Boolean) };
     if (editing) {
       const { checklist: _ignored, ...patch } = input;
       void _ignored;
@@ -207,7 +212,26 @@ function TaskForm({ onDone }: { onDone: (createdId?: string) => void }) {
               ))}
             </Select>
           </Field>
-          <Field label="Assignee" htmlFor="assigneeId" error={errors.assigneeId?.message} required hint={me.role === 'manager' ? 'You can assign to yourself and your direct reports.' : undefined}>
+          <Field label="Service" htmlFor="serviceId" hint={categoryId ? undefined : 'Choose a category first'}>
+            <Select
+              id="serviceId"
+              disabled={!groupServices.length}
+              {...register('serviceId', {
+                onChange: (e) => {
+                  const svc = db.services.find((s) => s.id === e.target.value);
+                  if (svc && !watch('title')) setValue('title', svc.name, { shouldValidate: true });
+                },
+              })}
+            >
+              <option value="">{groupServices.length ? 'Select service…' : 'No services in this group'}</option>
+              {groupServices.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {s.frequency}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Assignee" htmlFor="assigneeId" error={errors.assigneeId?.message} required hint={assignees.length === 1 ? 'You can create tasks for yourself. Ask an admin for “Create tasks for others”.' : me.role === 'manager' ? 'You can assign to yourself and your direct reports.' : undefined}>
             <Select id="assigneeId" aria-invalid={!!errors.assigneeId} {...register('assigneeId')}>
               <option value="">Select assignee…</option>
               {assignees.map((u) => (

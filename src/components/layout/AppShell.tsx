@@ -21,6 +21,16 @@ import {
   X,
   FolderPlus,
   ShieldCheck,
+  StickyNote,
+  Globe,
+  FileWarning,
+  Layers,
+  Handshake,
+  IndianRupee,
+  KeyRound,
+  ArrowLeftRight,
+  MessageCircle,
+  HardDrive,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { brand } from '@/config/brand';
@@ -30,7 +40,7 @@ import { Menu, MenuCheckItem, MenuContent, MenuItem, MenuLabel, MenuSeparator, M
 import { useConfirm } from '@/components/ui/confirm';
 import { Avatar } from '@/components/badges';
 import { ROLE_META } from '@/lib/constants';
-import { canCreateClient, canCreateTask, canManageTeam, canReviewTask, canViewReports, canViewTeam, visibleTasks } from '@/lib/permissions';
+import { canAccessBilling, canCreateClient, canCreateTask, canManageTeam, canReviewTask, canUseWhatsApp, canViewReports, canViewTeam, visibleTasks } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 import { store, useCurrentUser, useDb } from '@/store/store';
 import { useUI } from '@/store/ui';
@@ -94,26 +104,44 @@ export function AppShell() {
   const reviewCount = visibleTasks(db, me).filter((t) => t.status === 'in_review' && canReviewTask(me, t)).length;
   const unread = db.notifications.filter((n) => n.userId === me.id && !n.read).length;
 
+  const newNotices = db.notices.filter((n) => n.status === 'new').length;
+  const myDueReminders = db.reminders.filter((r) => r.userId === me.id && !r.done && r.dueAt <= new Date().toISOString()).length;
+
   const groups: { label: string; items: NavItem[] }[] = [
     {
-      label: 'Workspace',
+      label: 'Work Station',
       items: [
-        { to: '/', label: 'Overview', icon: <LayoutDashboard />, end: true },
+        { to: '/', label: 'Dashboard', icon: <LayoutDashboard />, end: true },
         { to: '/tasks', label: 'Tasks', icon: <ListTodo /> },
         { to: '/review', label: 'Review Queue', icon: <ClipboardCheck />, badge: reviewCount || undefined },
         { to: '/calendar', label: 'Compliance Calendar', icon: <CalendarDays /> },
+        { to: '/notes', label: 'Notes & Reminders', icon: <StickyNote />, badge: myDueReminders || undefined, badgeTone: 'red' as const },
+        { to: '/portals', label: 'Portal Login', icon: <Globe /> },
+        { to: '/notices', label: 'Notices', icon: <FileWarning />, badge: newNotices || undefined, badgeTone: 'red' as const },
       ],
     },
     {
-      label: 'Practice',
+      label: 'Master',
       items: [
         { to: '/clients', label: 'Clients', icon: <Building2 /> },
-        ...(canViewTeam(me) ? [{ to: '/team', label: 'Team', icon: <Users /> }] : []),
+        ...(canViewTeam(me) ? [{ to: '/team', label: 'Employees', icon: <Users /> }] : []),
+        { to: '/masters/services', label: 'Groups & Services', icon: <Layers /> },
+        { to: '/masters/referrers', label: 'Referred By', icon: <Handshake /> },
+      ],
+    },
+    ...(canAccessBilling(me) ? [{ label: 'Billing', items: [{ to: '/billing', label: 'Billing', icon: <IndianRupee /> }] }] : []),
+    {
+      label: 'Other Services',
+      items: [
+        { to: '/dsc', label: 'DSC Status', icon: <KeyRound /> },
+        { to: '/documents-register', label: 'Documents In / Out', icon: <ArrowLeftRight /> },
+        ...(canUseWhatsApp(me) ? [{ to: '/whatsapp', label: 'WhatsApp', icon: <MessageCircle /> }] : []),
+        { to: '/drive', label: 'Client Drive', icon: <HardDrive /> },
         ...(canViewReports(me) ? [{ to: '/reports', label: 'Reports', icon: <PieChart /> }] : []),
       ],
     },
     {
-      label: 'Account',
+      label: 'My Account',
       items: [
         { to: '/notifications', label: 'Notifications', icon: <Bell />, badge: unread || undefined, badgeTone: 'red' as const },
         { to: '/settings', label: 'Settings', icon: <Settings /> },
@@ -139,7 +167,7 @@ export function AppShell() {
             </Button>
           )}
         </div>
-        <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 py-4" aria-label="Main">
+        <nav className="flex-1 space-y-4 overflow-y-auto px-2.5 py-3" aria-label="Main">
           {groups.map((g) => (
             <div key={g.label}>
               {!mini && <p className="mb-1 px-2 text-2xs font-semibold uppercase tracking-wider text-ink-400">{g.label}</p>}

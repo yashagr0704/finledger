@@ -24,6 +24,14 @@ Live demo: https://yashagr0704.github.io/finledger/
 - **Reset demo data** is in the profile menu and in Settings → Demo data. Seed dates are generated relative to today.
 - Role switching is not authentication. Permissions are enforced in the store actions (`src/lib/permissions.ts`), but everything runs in the browser, so production needs the same rules on a server.
 
+## Modules
+
+- **Work Station:** dashboard (group tabs All/GST/Income Tax/TDS/MCA/Other/To-do with due/overdue buckets, colour-dot deadline calendar, task overview, compliance due, team performance), tasks (table + Kanban), review queue, compliance calendar, notes & reminders, portal login, notices.
+- **Master:** clients (tabbed add/alter form with GSTIN validation & auto-fill, billing name, entry/exit dates, contacts, custom fields, portal logins, attachments), employees (profile, temporary/permanent delete, per-user permissions), groups & services, referred by.
+- **Billing** (permission-gated): work in progress with advances, unbilled works → invoices, billed works with payments, client ledger.
+- **Other services:** DSC status, documents in/out register, WhatsApp (chats, broadcasts, AI-suggested festival wishes), client drive, reports.
+- **My Account:** company profile, configuration, users & roles (permission switches), templates, demo data.
+
 ## Structure
 
 | Path | Purpose |
@@ -43,3 +51,4 @@ Live demo: https://yashagr0704.github.io/finledger/
 - Notifications are in-app only; no email, SMS or WhatsApp is sent.
 - Attachments store file names and sizes only, not file contents.
 - Compliance dates are configurable demo schedules, not authoritative statutory due dates.
+- Simulated in the demo: notice fetching, GSTIN lookup (a small fictional directory; format and check digit are validated for real), WhatsApp sending and broadcasts, AI festival suggestions (template-based), invoice PDF/email.

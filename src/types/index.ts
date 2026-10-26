@@ -1,6 +1,18 @@
 export type Role = 'admin' | 'manager' | 'employee';
 export type UserStatus = 'active' | 'invited' | 'deactivated';
 
+/** Per-user access switches set by the admin. Unset values fall back to role defaults. */
+export interface Permissions {
+  viewAllTasks: boolean;
+  createTaskForOthers: boolean;
+  billing: boolean;
+  manageClients: boolean;
+  manageMasters: boolean;
+  whatsapp: boolean;
+  reports: boolean;
+  deleteRecords: boolean;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -15,6 +27,12 @@ export interface User {
   /** Weekly capacity in hours used for workload indicators. */
   capacityHours: number;
   avatarHue: number;
+  username?: string;
+  address?: string;
+  /** Stored masked in the demo (last 4 digits only). */
+  aadhaar?: string;
+  pan?: string;
+  permissions?: Partial<Permissions>;
 }
 
 export type EntityType =
@@ -57,6 +75,34 @@ export interface Client {
   status: ClientStatus;
   since: string;
   notes?: string;
+  billingName?: string;
+  tradeName?: string;
+  fileNo?: string;
+  /** Date of birth (individuals) or incorporation. */
+  incorporatedOn?: string;
+  taxesApplicable?: TaxHead[];
+  referredById?: string;
+  /** Set when the client leaves; messaging stops automatically. */
+  exitDate?: string;
+  contacts?: ContactPerson[];
+  customFields?: { label: string; value: string }[];
+  portalLogins?: PortalLogin[];
+  serviceIds?: string[];
+}
+
+export type TaxHead = 'GST' | 'Income Tax' | 'Other';
+
+export interface ContactPerson {
+  name: string;
+  designation: string;
+  phone: string;
+  email: string;
+}
+
+export interface PortalLogin {
+  portalId: string;
+  username: string;
+  password: string;
 }
 
 export type TaskStatus = 'not_started' | 'in_progress' | 'in_review' | 'changes_requested' | 'completed';
@@ -117,6 +163,10 @@ export interface Task {
   updatedBy: string;
   submittedAt?: string;
   completedAt?: string;
+  serviceId?: string;
+  /** Professional fee for billing (demo). */
+  fee?: number;
+  invoiceId?: string;
 }
 
 export interface Comment {
@@ -231,6 +281,157 @@ export interface TaskTemplate {
   lastGeneratedAt?: string;
 }
 
+export interface Service {
+  id: string;
+  groupId: string;
+  name: string;
+  frequency: string;
+  defaultFee: number;
+}
+
+export interface Referrer {
+  id: string;
+  name: string;
+  firmName: string;
+  mobile: string;
+  email: string;
+  address: string;
+}
+
+export interface Note {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  color: 'yellow' | 'blue' | 'green' | 'pink' | 'slate';
+  pinned: boolean;
+  clientId?: string;
+  updatedAt: string;
+}
+
+export interface Reminder {
+  id: string;
+  userId: string;
+  title: string;
+  dueAt: string;
+  clientId?: string;
+  repeat: 'none' | 'daily' | 'weekly' | 'monthly';
+  done: boolean;
+}
+
+export interface Portal {
+  id: string;
+  name: string;
+  short: string;
+  url: string;
+  description: string;
+  clicks: number;
+  hue: number;
+}
+
+export type NoticeSource = 'GST' | 'Income Tax' | 'TDS' | 'Other';
+export type NoticeStatus = 'new' | 'in_progress' | 'replied' | 'closed';
+
+export interface Notice {
+  id: string;
+  clientId: string;
+  source: NoticeSource;
+  form: string;
+  subject: string;
+  reference: string;
+  issuedOn: string;
+  dueOn: string;
+  amount?: number;
+  status: NoticeStatus;
+  assigneeId?: string;
+  fetchedAt: string;
+  taskId?: string;
+}
+
+export interface InvoiceItem {
+  taskId?: string;
+  description: string;
+  amount: number;
+}
+
+export interface Invoice {
+  id: string;
+  number: string;
+  clientId: string;
+  date: string;
+  dueDate: string;
+  items: InvoiceItem[];
+  gstRate: number;
+}
+
+export interface Payment {
+  id: string;
+  clientId: string;
+  invoiceId?: string;
+  date: string;
+  amount: number;
+  mode: 'UPI' | 'NEFT' | 'Cheque' | 'Cash';
+  kind: 'advance' | 'receipt';
+  reference: string;
+}
+
+export interface Dsc {
+  id: string;
+  clientId: string;
+  holder: string;
+  type: 'Signing' | 'Signing & Encryption';
+  provider: string;
+  tokenSerial: string;
+  issuedOn: string;
+  expiresOn: string;
+  custody: 'firm' | 'client';
+  lastMovedAt: string;
+}
+
+export interface DocMovement {
+  id: string;
+  clientId: string;
+  document: string;
+  direction: 'in' | 'out';
+  date: string;
+  mode: 'By hand' | 'Courier' | 'Email' | 'Post';
+  person: string;
+  handledBy: string;
+  expectedReturn?: string;
+  returned: boolean;
+  remarks?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  clientId: string;
+  direction: 'in' | 'out';
+  body: string;
+  at: string;
+  status: 'sent' | 'delivered' | 'read';
+  authorId?: string;
+}
+
+export interface Broadcast {
+  id: string;
+  title: string;
+  body: string;
+  kind: 'festival' | 'compliance' | 'custom';
+  sentAt: string;
+  recipients: number;
+  sentBy: string;
+}
+
+export interface DriveFile {
+  id: string;
+  clientId: string;
+  folder: string;
+  name: string;
+  sizeKb: number;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
 export interface Firm {
   name: string;
   legalName: string;
@@ -240,6 +441,11 @@ export interface Firm {
   phone: string;
   /** Days before the due date at which a task is considered "at risk". */
   atRiskDays: number;
+  whatsappNumber?: string;
+  invoicePrefix?: string;
+  defaultGstRate?: number;
+  gstin?: string;
+  address?: string;
 }
 
 export interface Database {
@@ -256,4 +462,17 @@ export interface Database {
   documents: DocumentRequest[];
   reviews: ReviewRecord[];
   templates: TaskTemplate[];
+  services: Service[];
+  referrers: Referrer[];
+  notes: Note[];
+  reminders: Reminder[];
+  portals: Portal[];
+  notices: Notice[];
+  invoices: Invoice[];
+  payments: Payment[];
+  dscs: Dsc[];
+  docMovements: DocMovement[];
+  chats: ChatMessage[];
+  broadcasts: Broadcast[];
+  drive: DriveFile[];
 }

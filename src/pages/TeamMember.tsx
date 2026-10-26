@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Inbox, Mail, Phone, UserX } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Inbox, Mail, Pencil, Phone, UserX, X } from 'lucide-react';
+import { EmployeeDialog } from '@/components/team/EmployeeDialog';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from 'recharts';
 import { Card, CardHeader, EmptyState, Segmented } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,7 @@ import { WorkloadMeter } from '@/components/team/WorkloadMeter';
 import { ROLE_META } from '@/lib/constants';
 import { formatDate } from '@/lib/dates';
 import { byUrgency, completedInMonth, completionTrend, formatHours, isOpen, isOverdue, reviewTurnaround } from '@/lib/metrics';
-import { visibleTasks } from '@/lib/permissions';
+import { canManageTeam, PERMISSION_META, permissionsOf, visibleTasks } from '@/lib/permissions';
 import { useCurrentUser, useDb } from '@/store/store';
 
 export default function TeamMember() {
@@ -21,6 +22,7 @@ export default function TeamMember() {
   const me = useCurrentUser();
   const user = db.users.find((u) => u.id === userId);
   const [tab, setTab] = useState<'open' | 'done'>('open');
+  const [editing, setEditing] = useState(false);
   const scoped = useMemo(() => visibleTasks(db, me), [db, me]);
 
   if (!user)
@@ -83,6 +85,12 @@ export default function TeamMember() {
           </p>
         </div>
         {user.status === 'active' && <WorkloadMeter user={user} />}
+        {canManageTeam(me) && (
+          <Button onClick={() => setEditing(true)}>
+            <Pencil /> Edit
+          </Button>
+        )}
+        <EmployeeDialog open={editing} user={user} onClose={() => setEditing(false)} />
       </div>
 
       <Card className="mb-4 grid grid-cols-2 divide-x divide-y divide-line sm:grid-cols-5 sm:divide-y-0">
@@ -128,6 +136,37 @@ export default function TeamMember() {
           )}
         </Card>
         <div className="space-y-4">
+          <Card>
+            <CardHeader title="Profile & access" />
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-2 px-4 py-3 text-xs">
+              {(
+                [
+                  ['Username', user.username ?? '—'],
+                  ['PAN', user.pan ?? '—'],
+                  ['Aadhaar', user.aadhaar ?? '—'],
+                  ['Address', user.address ?? '—'],
+                ] as [string, string][]
+              ).map(([k, v]) => (
+                <div key={k} className="min-w-0">
+                  <dt className="text-2xs text-ink-400">{k}</dt>
+                  <dd className="truncate text-ink-800" title={v}>
+                    {v}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <ul className="space-y-1 border-t border-line px-4 py-3">
+              {(Object.keys(PERMISSION_META) as (keyof typeof PERMISSION_META)[]).map((k) => {
+                const on = permissionsOf(user)[k];
+                return (
+                  <li key={k} className={`flex items-center gap-2 text-xs ${on ? 'text-ink-800' : 'text-ink-400'}`}>
+                    {on ? <Check className="size-3.5 text-emerald-600" /> : <X className="size-3.5" />}
+                    {PERMISSION_META[k].label}
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
           <Card>
             <CardHeader title="Completed per month" />
             <div className="h-44 px-2 pb-2 pt-3">
