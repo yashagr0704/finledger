@@ -83,6 +83,8 @@ npm run server:dev                            # API on http://localhost:8787 (au
 npm run dev:backend                           # web app on http://localhost:5173, proxies /api
 ```
 
+All npm scripts work the same in Windows `cmd`/PowerShell, macOS and Linux. Backend mode is switched on by `.env.backend` (loaded via `vite --mode backend`).
+
 Sign in as `rohan@mehtaiyer.demo` (admin), `vikram@mehtaiyer.demo` (manager) or `priya@mehtaiyer.demo` (employee), all with the password `demo1234`.
 
 To start a real firm instead of the demo:
@@ -98,6 +100,13 @@ The admin then invites the team from **Employees → Add employee**. Each person
 ```bash
 npm run build:backend && npm run server:build
 NODE_ENV=production APP_SECRET=… DATABASE_URL=postgres://… npm run server:start
+```
+
+On Windows (PowerShell), set the variables first:
+
+```powershell
+$env:NODE_ENV="production"; $env:APP_SECRET="…"; $env:DATABASE_URL="postgres://…"
+npm run server:start
 ```
 
 The API server also serves the built web app from `dist/` on the same origin, so no CORS setup is needed.

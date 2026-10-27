@@ -3,7 +3,7 @@ import type { ProposedId } from '@/domain/context';
 import type { Database } from '@/types';
 
 /**
- * Backend mode is enabled at build time with VITE_BACKEND=1. The API lives at
+ * Backend mode is enabled at build time with VITE_BACKEND=1 (set in .env.backend). The API lives at
  * VITE_API_URL (default: same origin, `/api`). Without it the app runs as the
  * self-contained browser demo.
  */
