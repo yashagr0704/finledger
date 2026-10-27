@@ -558,7 +558,8 @@ export function generateFromTemplate(ctx: Ctx, templateId: string, opts?: { only
     notify(ctx, assigneeId, { type: 'assigned', title: 'New recurring task', body: `${tpl.name} — ${period.label} · ${c.name}`, taskId: id, clientId: c.id });
     created += 1;
   }
-  tpl.lastGeneratedAt = now();
+  // Scheduled runs only touch the template when they actually created something.
+  if (created || !opts) tpl.lastGeneratedAt = now();
   return { created, period };
 }
 

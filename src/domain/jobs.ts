@@ -37,6 +37,19 @@ export function runScheduledJobs(db: Database, at = new Date()): { db: Database;
   const admins = draft.users.filter((u) => u.role === 'admin' && u.status === 'active');
   const clientName = (id: string) => draft.clients.find((c) => c.id === id)?.name ?? '';
 
+  // Generate recurring work first so new tasks get their alerts in the same run.
+  const system = admins[0];
+  if (system) {
+    const ctx: Ctx = { db: draft, me: system, newId: ids.newId, newTaskId: ids.newTaskId };
+    for (const tpl of draft.templates.filter((t) => t.active)) {
+      try {
+        report.generated += generateFromTemplate(ctx, tpl.id, { onlyIfDueWithinDays: RECURRING_LEAD_DAYS }).created;
+      } catch {
+        // A template without an upcoming period is simply skipped.
+      }
+    }
+  }
+
   for (const t of draft.tasks) {
     if (!isOpen(t) || !active.has(t.assigneeId)) continue;
     const d = differenceInCalendarDays(parseISO(t.dueDate), at);
@@ -73,16 +86,5 @@ export function runScheduledJobs(db: Database, at = new Date()): { db: Database;
       if (push(a.id, `dsc:${dsc.id}:${window}`, { type: 'due_soon', title: d < 0 ? 'DSC expired' : 'DSC expiring soon', body: `${dsc.holder} (${clientName(dsc.clientId)}) — ${d < 0 ? 'expired' : `valid till ${formatDate(dsc.expiresOn, 'd MMM yyyy')}`}`, clientId: dsc.clientId })) report.dscExpiry += 1;
   }
 
-  const system = admins[0];
-  if (system) {
-    const ctx: Ctx = { db: draft, me: system, newId: ids.newId, newTaskId: ids.newTaskId };
-    for (const tpl of draft.templates.filter((t) => t.active)) {
-      try {
-        report.generated += generateFromTemplate(ctx, tpl.id, { onlyIfDueWithinDays: RECURRING_LEAD_DAYS }).created;
-      } catch {
-        // A template without an upcoming period is simply skipped.
-      }
-    }
-  }
   return { db: draft, report };
 }
