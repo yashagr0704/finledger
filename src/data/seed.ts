@@ -20,7 +20,7 @@ import type {
   User,
 } from '@/types';
 
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
 
 /** Deterministic PRNG so the demo looks the same on every reset. */
 function mulberry32(seed: number) {
@@ -480,6 +480,7 @@ export function createSeed(): Database {
     email: 'office@mehtaiyer.demo',
     phone: '+91 22 4000 0000',
     atRiskDays: 3,
+    isDemo: true,
   };
   const extras = createExtras({ now, rand, users, clients, tasks, firm });
 

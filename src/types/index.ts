@@ -102,7 +102,9 @@ export interface ContactPerson {
 export interface PortalLogin {
   portalId: string;
   username: string;
+  /** Empty when the server withholds it; fetch on demand. */
   password: string;
+  hasPassword?: boolean;
 }
 
 export type TaskStatus = 'not_started' | 'in_progress' | 'in_review' | 'changes_requested' | 'completed';
@@ -128,6 +130,8 @@ export interface Attachment {
   id: string;
   name: string;
   sizeKb: number;
+  /** Stored file (backend mode only). */
+  fileId?: string;
   uploadedBy: string;
   uploadedAt: string;
 }
@@ -229,6 +233,8 @@ export interface AppNotification {
   clientId?: string;
   createdAt: string;
   read: boolean;
+  /** De-duplication key for notifications created by scheduled jobs. */
+  refKey?: string;
 }
 
 export type DocumentStatus = 'pending' | 'received';
@@ -317,6 +323,7 @@ export interface Reminder {
   clientId?: string;
   repeat: 'none' | 'daily' | 'weekly' | 'monthly';
   done: boolean;
+  notifiedAt?: string;
 }
 
 export interface Portal {
@@ -408,8 +415,10 @@ export interface ChatMessage {
   direction: 'in' | 'out';
   body: string;
   at: string;
-  status: 'sent' | 'delivered' | 'read';
+  status: 'sent' | 'delivered' | 'read' | 'failed';
   authorId?: string;
+  /** Message id from the WhatsApp provider. */
+  externalId?: string;
 }
 
 export interface Broadcast {
@@ -430,6 +439,7 @@ export interface DriveFile {
   sizeKb: number;
   uploadedBy: string;
   uploadedAt: string;
+  fileId?: string;
 }
 
 export interface Firm {
@@ -446,11 +456,15 @@ export interface Firm {
   defaultGstRate?: number;
   gstin?: string;
   address?: string;
+  /** Demo firms get simulated integrations (notice fetch etc.). */
+  isDemo?: boolean;
 }
 
 export interface Database {
   version: number;
   seededAt: string;
+  /** Highest task number in the firm (sent by the server so new IDs don't collide). */
+  taskSeq?: number;
   firm: Firm;
   users: User[];
   clients: Client[];
