@@ -50,13 +50,13 @@ export interface Config {
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
   const port = num(env.PORT, 8787);
-  const staticDir = env.STATIC_DIR ?? path.resolve('dist');
+  const staticDir = path.resolve(env.STATIC_DIR ?? 'dist');
   return {
     port,
     host: env.HOST ?? '0.0.0.0',
     publicUrl: (env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/$/, ''),
     databaseUrl: env.DATABASE_URL || undefined,
-    pgliteDir: env.PGLITE_DIR ?? path.join(dataDir, 'pglite'),
+    pgliteDir: path.resolve(env.PGLITE_DIR ?? path.join(dataDir, 'pglite')),
     appSecret: overrides.appSecret ?? appSecret(),
     cookieSecure: bool(env.COOKIE_SECURE, isProd),
     corsOrigin: env.CORS_ORIGIN || undefined,

@@ -9,6 +9,7 @@ import { canManageMasters, visibleClients } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 import { store, useCurrentUser, useDb } from '@/store/store';
 import type { Portal } from '@/types';
+import { api, BACKEND } from '@/api/client';
 
 export default function PortalsPage() {
   const db = useDb();
@@ -91,11 +92,28 @@ function ClientCredentials() {
   const [q, setQ] = useState('');
   const [portal, setPortal] = useState('');
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  // Backend mode: passwords are fetched one at a time from the server (each reveal is audited).
+  const [fetched, setFetched] = useState<Map<string, string>>(new Map());
   const portals = new Map(db.portals.map((p) => [p.id, p]));
   const rows = visibleClients(db, me)
     .filter((c) => !c.exitDate)
-    .flatMap((c) => (c.portalLogins ?? []).map((l, i) => ({ key: `${c.id}_${i}`, client: c, login: l, portal: portals.get(l.portalId) })))
+    .flatMap((c) => (c.portalLogins ?? []).map((l, i) => ({ key: `${c.id}_${i}`, index: i, client: c, login: l, portal: portals.get(l.portalId) })))
     .filter((r) => (!portal || r.login.portalId === portal) && (!q || r.client.name.toLowerCase().includes(q.toLowerCase())));
+  const passwordOf = async (key: string, clientId: string, index: number, login: { password: string }) => {
+    if (!BACKEND) return login.password;
+    const known = fetched.get(key);
+    if (known !== undefined) return known;
+    const { password } = await api.revealLogin(clientId, index);
+    setFetched((m) => new Map(m).set(key, password));
+    return password;
+  };
+  const toggleReveal = (key: string, clientId: string, index: number, login: { password: string }) => {
+    if (revealed.has(key)) return setRevealed((s) => (s.delete(key), new Set(s)));
+    passwordOf(key, clientId, index, login).then(
+      () => setRevealed((s) => new Set(s).add(key)),
+      (e: Error) => toast.error(e.message),
+    );
+  };
   const copy = (text: string, what: string) => {
     void navigator.clipboard?.writeText(text).then(
       () => toast.success(`${what} copied`),
@@ -136,7 +154,7 @@ function ClientCredentials() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {rows.map(({ key, client, login, portal: p }) => (
+              {rows.map(({ key, index, client, login, portal: p }) => (
                 <tr key={key} className="hover:bg-slate-50">
                   <td className="px-4 py-2 text-[13px] font-medium text-ink-900">{client.name}</td>
                   <td className="px-3 py-2 text-xs text-ink-700">{p?.name}</td>
@@ -147,15 +165,21 @@ function ClientCredentials() {
                   </td>
                   <td className="px-3 py-2">
                     <span className="inline-flex items-center gap-1.5 font-mono text-xs text-ink-800">
-                      {revealed.has(key) ? login.password : '••••••••'}
+                      {revealed.has(key) ? (BACKEND ? fetched.get(key) : login.password) || '—' : BACKEND && !login.hasPassword ? '—' : '••••••••'}
                       <button
-                        onClick={() => setRevealed((s) => (s.has(key) ? (s.delete(key), new Set(s)) : new Set(s).add(key)))}
+                        onClick={() => toggleReveal(key, client.id, index, login)}
                         className="rounded p-0.5 text-ink-400 hover:text-ink-700"
                         aria-label={revealed.has(key) ? 'Hide password' : 'Show password'}
                       >
                         {revealed.has(key) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                       </button>
-                      <button onClick={() => copy(login.password, 'Password')} className="rounded p-0.5 text-ink-400 hover:text-ink-700" aria-label="Copy password">
+                      <button
+                        onClick={() =>
+                          passwordOf(key, client.id, index, login).then(
+                            (pw) => copy(pw, 'Password'),
+                            (e: Error) => toast.error(e.message),
+                          )
+                        } className="rounded p-0.5 text-ink-400 hover:text-ink-700" aria-label="Copy password">
                         <Copy className="size-3" />
                       </button>
                     </span>

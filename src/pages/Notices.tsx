@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CloudDownload, FileWarning, Info, ListPlus, Loader2 } from 'lucide-react';
+import { CloudDownload, FileWarning, Info, ListPlus, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, EmptyState, PageHeader } from '@/components/ui/misc';
-import { Select } from '@/components/ui/form';
+import { Field, Input, Select } from '@/components/ui/form';
+import { Dialog, DialogBody, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Avatar } from '@/components/badges';
 import { FilterMenu } from '@/components/tasks/FilterMenu';
-import { daysUntil, formatDate, formatDateTime } from '@/lib/dates';
+import { daysUntil, formatDate, formatDateTime, todayKey } from '@/lib/dates';
 import { inr } from '@/lib/billing';
 import { useLookup } from '@/lib/lookup';
 import { visibleClients } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
-import { store, useCurrentUser, useDb } from '@/store/store';
+import { store, useCaps, useCurrentUser, useDb } from '@/store/store';
 import { useUI } from '@/store/ui';
 import type { NoticeSource, NoticeStatus } from '@/types';
 
@@ -33,6 +34,9 @@ export default function NoticesPage() {
   const [source, setSource] = useState<'all' | NoticeSource>('all');
   const [status, setStatus] = useState<string[]>(['new', 'in_progress']);
   const [fetching, setFetching] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const caps = useCaps();
+  const canFetch = caps.noticeFetch === 'demo';
   const allowed = new Set(visibleClients(db, me).map((c) => c.id));
   const all = db.notices.filter((n) => allowed.has(n.clientId));
   const list = all.filter((n) => (source === 'all' || n.source === source) && (!status.length || status.includes(n.status))).sort((a, b) => a.dueOn.localeCompare(b.dueOn));
@@ -53,14 +57,26 @@ export default function NoticesPage() {
         title="Notices"
         description={`GST, Income Tax and TDS notices for your clients${lastFetch ? ` · last synced ${formatDateTime(lastFetch)}` : ''}`}
         actions={
-          <Button variant="primary" onClick={fetchNow} disabled={fetching}>
-            {fetching ? <Loader2 className="animate-spin" /> : <CloudDownload />} {fetching ? 'Checking portals…' : 'Fetch now'}
-          </Button>
+          <>
+            <Button variant={canFetch ? 'secondary' : 'primary'} onClick={() => setAdding(true)}>
+              <Plus /> Add notice
+            </Button>
+            {canFetch && (
+              <Button variant="primary" onClick={fetchNow} disabled={fetching}>
+                {fetching ? <Loader2 className="animate-spin" /> : <CloudDownload />} {fetching ? 'Checking portals…' : 'Fetch now'}
+              </Button>
+            )}
+          </>
         }
       />
+      <AddNoticeDialog open={adding} onClose={() => setAdding(false)} />
       <div className="mb-3 flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50/60 px-3 py-2 text-xs text-sky-900">
         <Info className="mt-px size-3.5 shrink-0" />
-        <span>Demo: notices and “Fetch now” are simulated. Pulling notices automatically needs a licensed GST provider (GSP) and client consent; the Income Tax portal has no public API.</span>
+        <span>
+          {canFetch
+            ? 'Demo: notices and “Fetch now” are simulated. Pulling notices automatically needs a licensed GST provider (GSP) and client consent; the Income Tax portal has no public API.'
+            : 'Record notices as they arrive using “Add notice”. Automatic fetching needs a licensed GST provider (GSP) and client consent; the Income Tax portal has no public API.'}
+        </span>
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -200,5 +216,98 @@ export default function NoticesPage() {
         )}
       </Card>
     </div>
+  );
+}
+
+function AddNoticeDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const db = useDb();
+  const me = useCurrentUser();
+  const clients = visibleClients(db, me).filter((c) => !c.exitDate);
+  const blank = { clientId: '', source: 'GST' as NoticeSource, form: '', subject: '', reference: '', issuedOn: todayKey(), dueOn: '', amount: '', assigneeId: me.id };
+  const [v, setV] = useState(blank);
+  const set = (k: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: e.target.value });
+  const close = () => (setV(blank), onClose());
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = store.addNotice({
+      clientId: v.clientId,
+      source: v.source,
+      form: v.form,
+      subject: v.subject,
+      reference: v.reference,
+      issuedOn: v.issuedOn,
+      dueOn: v.dueOn,
+      amount: v.amount ? Number(v.amount) : undefined,
+      assigneeId: v.assigneeId || undefined,
+    });
+    if (n) {
+      toast.success('Notice added');
+      close();
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && close()}>
+      <DialogContent title="Add notice" description="Record a notice received from a tax portal." size="md">
+        <form onSubmit={submit} noValidate>
+          <DialogBody className="grid gap-4 sm:grid-cols-2">
+            <Field label="Client" htmlFor="nt-client" required className="sm:col-span-2">
+              <Select id="nt-client" value={v.clientId} onChange={set('clientId')}>
+                <option value="">Select client…</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Source" htmlFor="nt-source">
+              <Select id="nt-source" value={v.source} onChange={set('source')}>
+                {SOURCES.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Form / section" htmlFor="nt-form" required>
+              <Input id="nt-form" value={v.form} onChange={set('form')} placeholder="e.g. ASMT-10, 143(1)" />
+            </Field>
+            <Field label="Subject" htmlFor="nt-subject" required className="sm:col-span-2">
+              <Input id="nt-subject" value={v.subject} onChange={set('subject')} placeholder="e.g. Mismatch between GSTR-1 and GSTR-3B" />
+            </Field>
+            <Field label="Reference / DIN" htmlFor="nt-ref">
+              <Input id="nt-ref" value={v.reference} onChange={set('reference')} />
+            </Field>
+            <Field label="Amount (₹)" htmlFor="nt-amt">
+              <Input id="nt-amt" type="number" min={0} value={v.amount} onChange={set('amount')} />
+            </Field>
+            <Field label="Issued on" htmlFor="nt-issued">
+              <Input id="nt-issued" type="date" value={v.issuedOn} onChange={set('issuedOn')} />
+            </Field>
+            <Field label="Reply due" htmlFor="nt-due" required>
+              <Input id="nt-due" type="date" value={v.dueOn} onChange={set('dueOn')} />
+            </Field>
+            <Field label="Assign to" htmlFor="nt-assignee" className="sm:col-span-2">
+              <Select id="nt-assignee" value={v.assigneeId} onChange={set('assigneeId')}>
+                <option value="">Unassigned</option>
+                {db.users
+                  .filter((u) => u.status === 'active')
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={close}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={!v.clientId || !v.form.trim() || !v.subject.trim() || !v.dueOn}>
+              Add notice
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

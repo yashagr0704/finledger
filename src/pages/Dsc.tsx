@@ -156,7 +156,7 @@ function DscDialog({ value, onClose }: { value: Dsc | 'new' | null; onClose: () 
   const me = useCurrentUser();
   const existing = value && value !== 'new' ? value : undefined;
   const [form, setForm] = useState<Omit<Dsc, 'id' | 'lastMovedAt'>>(() => ({
-    clientId: existing?.clientId ?? db.clients[0].id,
+    clientId: existing?.clientId ?? db.clients[0]?.id ?? '',
     holder: existing?.holder ?? '',
     type: existing?.type ?? 'Signing',
     provider: existing?.provider ?? 'eMudhra',

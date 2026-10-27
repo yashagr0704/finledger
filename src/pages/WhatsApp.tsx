@@ -13,8 +13,10 @@ import { formatDate, formatDateTime, todayKey } from '@/lib/dates';
 import { useLookup } from '@/lib/lookup';
 import { visibleClients } from '@/lib/permissions';
 import { cn, initials } from '@/lib/utils';
-import { store, useCurrentUser, useDb } from '@/store/store';
+import { store, useCaps, useCurrentUser, useDb } from '@/store/store';
 import type { Broadcast, Client } from '@/types';
+
+const simNote = () => (store.getState().caps?.whatsapp === 'meta' ? undefined : 'Simulated — not actually sent.');
 
 type Tab = 'chats' | 'broadcast' | 'wishes' | 'history';
 
@@ -29,12 +31,17 @@ export default function WhatsAppPage() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') as Tab) || 'chats';
   const db = useDb();
+  const live = useCaps().whatsapp === 'meta';
   return (
     <div className="animate-slide-up">
       <PageHeader title="WhatsApp" description={`Business number ${db.firm.whatsappNumber ?? '—'} · chats, broadcasts and festival wishes`} />
       <div className="mb-3 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-900">
         <Info className="mt-px size-3.5 shrink-0" />
-        <span>Demo: messages are simulated and not sent. Production would use the WhatsApp Business Platform, with client opt-in and Meta-approved templates. Clients who have left the firm are excluded automatically.</span>
+        <span>
+          {live
+            ? 'Messages are sent through the WhatsApp Business Platform. Outside the 24-hour reply window only Meta-approved templates are delivered. Clients who have left the firm are excluded automatically.'
+            : 'Messages are simulated and not sent. Connect the WhatsApp Business Platform on the server to send for real (client opt-in and Meta-approved templates required). Clients who have left the firm are excluded automatically.'}
+        </span>
       </div>
       <Tabs
         className="mb-4"
@@ -309,7 +316,7 @@ function BroadcastComposer() {
                   onConfirm: () => {
                     const n = store.sendBroadcast({ title, body, kind: 'compliance', clientIds: [...selected] });
                     if (n) {
-                      toast.success(`Broadcast queued for ${n} clients`, { description: 'Simulated in the demo.' });
+                      toast.success(`Broadcast queued for ${n} clients`, { description: simNote() });
                       setSelected(new Set());
                     }
                   },
@@ -427,7 +434,7 @@ function FestivalWishes() {
                   confirmLabel: 'Send to all',
                   onConfirm: () => {
                     const n = store.sendBroadcast({ title: `${festival} wishes`, body: text, kind: 'festival', clientIds: audience.map((c) => c.id) });
-                    if (n) toast.success(`${festival} wishes sent to ${n} clients`, { description: 'Simulated in the demo.' });
+                    if (n) toast.success(`${festival} wishes sent to ${n} clients`, { description: simNote() });
                   },
                 })
               }

@@ -13,7 +13,8 @@ import { completedInMonth, isOpen, isOverdue, workloadFor } from '@/lib/metrics'
 import { WorkloadMeter } from '@/components/team/WorkloadMeter';
 import { canManageTeam } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
-import { store, useCurrentUser, useDb } from '@/store/store';
+import { showInviteLink, store, useCurrentUser, useDb } from '@/store/store';
+import { api, BACKEND } from '@/api/client';
 import { useUI } from '@/store/ui';
 import type { Role, User } from '@/types';
 
@@ -182,12 +183,23 @@ export default function Team() {
                             <MenuSeparator />
                             {u.status === 'invited' && (
                               <>
-                                <MenuItem onSelect={() => toast.success(`Invite re-sent to ${u.email}`, { description: 'Simulated — no email is sent in demo mode.' })}>
+                                <MenuItem
+                                  onSelect={() =>
+                                    BACKEND
+                                      ? void api.inviteLink(u.id).then(
+                                          (r) => showInviteLink(r.inviteUrl, r.emailed),
+                                          (e: Error) => toast.error(e.message),
+                                        )
+                                      : toast.success(`Invite re-sent to ${u.email}`, { description: 'Simulated — no email is sent in demo mode.' })
+                                  }
+                                >
                                   <MailCheck /> Resend invite
                                 </MenuItem>
-                                <MenuItem onSelect={() => store.updateMember(u.id, { status: 'active' }) && toast.success(`${u.name} marked as joined (demo)`)}>
-                                  <UserRoundCheck /> Mark as joined (demo)
-                                </MenuItem>
+                                {!BACKEND && (
+                                  <MenuItem onSelect={() => store.updateMember(u.id, { status: 'active' }) && toast.success(`${u.name} marked as joined (demo)`)}>
+                                    <UserRoundCheck /> Mark as joined (demo)
+                                  </MenuItem>
+                                )}
                               </>
                             )}
                             {u.status === 'deactivated' ? (

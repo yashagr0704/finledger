@@ -40,6 +40,7 @@ import { availableTransitions, type Transition } from '@/lib/workflow';
 import { store, useCurrentUser, useDb } from '@/store/store';
 import { useUI } from '@/store/ui';
 import type { Task } from '@/types';
+import { fileHref, UPLOAD_NOTE, uploadFiles } from '@/lib/uploads';
 
 export function TaskDrawer() {
   const { activeTaskId, closeTask } = useUI();
@@ -643,11 +644,12 @@ function DocumentsSection({ task, canEdit }: { task: Task; canEdit: boolean }) {
                 type="file"
                 className="hidden"
                 multiple
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []);
-                  files.forEach((f) => store.addAttachment(task.id, { name: f.name, sizeKb: f.size / 1024 }));
-                  if (files.length) toast.success(`${files.length} file${files.length > 1 ? 's' : ''} attached`, { description: 'Demo mode stores file details only, not file contents.' });
+                onChange={async (e) => {
+                  const picked = Array.from(e.target.files ?? []);
                   e.target.value = '';
+                  const files = await uploadFiles(picked, { taskId: task.id });
+                  files.forEach((f) => store.addAttachment(task.id, f));
+                  if (files.length) toast.success(`${files.length} file${files.length > 1 ? 's' : ''} attached`, { description: UPLOAD_NOTE });
                 }}
               />
             </>
@@ -709,7 +711,13 @@ function DocumentsSection({ task, canEdit }: { task: Task; canEdit: boolean }) {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium text-ink-800" title={a.name}>
-                  {a.name}
+                  {fileHref(a.fileId) ? (
+                    <a href={fileHref(a.fileId)} target="_blank" rel="noreferrer" className="hover:text-brand-700 hover:underline">
+                      {a.name}
+                    </a>
+                  ) : (
+                    a.name
+                  )}
                 </p>
                 <p className="text-2xs text-ink-400">
                   {formatFileSize(a.sizeKb)} · {users.get(a.uploadedBy)?.name.split(' ')[0]} · {formatDate(a.uploadedAt, 'd MMM')}

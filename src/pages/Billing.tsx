@@ -481,7 +481,7 @@ function PaymentDialog({ state, onClose }: { state: { clientId?: string; invoice
 
 function PaymentForm({ state, onClose, defaultAmount }: { state: { clientId?: string; invoice?: Invoice; kind: Payment['kind'] }; onClose: () => void; defaultAmount: number }) {
   const db = useDb();
-  const [clientId, setClientId] = useState(state.clientId ?? db.clients[0].id);
+  const [clientId, setClientId] = useState(state.clientId ?? db.clients[0]?.id ?? '');
   const [amount, setAmount] = useState(defaultAmount ? String(defaultAmount) : '');
   const [mode, setMode] = useState<Payment['mode']>('NEFT');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));

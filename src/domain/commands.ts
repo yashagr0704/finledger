@@ -332,7 +332,9 @@ function cleanClient(ctx: Ctx, input: Partial<ClientInput>, existing?: Client) {
     // A blank password means "keep the saved one" (the server never sends passwords out in bulk).
     c.portalLogins = c.portalLogins.map((l) => {
       const prev = existing?.portalLogins?.find((p) => p.portalId === l.portalId && p.username === l.username);
-      return { portalId: l.portalId, username: l.username, password: l.password || prev?.password || '' };
+      const password = l.password || prev?.password || '';
+      // hasPassword only matters on scoped (client-side) copies, where saved passwords are blank.
+      return { portalId: l.portalId, username: l.username, password, ...(!password && prev?.hasPassword ? { hasPassword: true } : {}) };
     });
   }
   if (c.status === 'inactive' && !c.exitDate && !existing?.exitDate) c.exitDate = today();

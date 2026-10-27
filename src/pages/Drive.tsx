@@ -12,6 +12,8 @@ import { permissionsOf, visibleClients } from '@/lib/permissions';
 import { cn, formatFileSize } from '@/lib/utils';
 import { store, useCurrentUser, useDb } from '@/store/store';
 import type { DriveFile } from '@/types';
+import { fileHref, UPLOAD_NOTE, uploadFiles } from '@/lib/uploads';
+import { BACKEND } from '@/api/client';
 
 function fileIcon(name: string) {
   if (/\.(xlsx?|csv)$/i.test(name)) return <FileSpreadsheet className="size-4 text-emerald-600" />;
@@ -107,11 +109,12 @@ export default function DrivePage() {
               type="file"
               multiple
               className="hidden"
-              onChange={(e) => {
+              onChange={async (e) => {
                 const list = Array.from(e.target.files ?? []);
-                const n = store.addDriveFiles(clientId, folder || 'General', list.map((f) => ({ name: f.name, sizeKb: f.size / 1024 })));
-                if (n) toast.success(`${n} file${n > 1 ? 's' : ''} added to ${folder || 'General'}`, { description: 'Demo stores file names only, not contents.' });
                 e.target.value = '';
+                const uploaded = await uploadFiles(list, { clientId });
+                const n = uploaded.length ? store.addDriveFiles(clientId, folder || 'General', uploaded) : 0;
+                if (n) toast.success(`${n} file${n > 1 ? 's' : ''} added to ${folder || 'General'}`, { description: UPLOAD_NOTE });
               }}
             />
           </div>
@@ -149,7 +152,12 @@ export default function DrivePage() {
                   {results.map((f) => (
                     <tr key={f.id} className="group hover:bg-slate-50">
                       <td className="px-4 py-2">
-                        <button onClick={() => toast.info(`${f.name}`, { description: 'File preview is not available in the demo.' })} className="flex items-center gap-2 text-[13px] text-ink-900 hover:text-brand-700">
+                        <button
+                          onClick={() => {
+                            const href = fileHref(f.fileId);
+                            if (href) window.open(href, '_blank', 'noopener');
+                            else toast.info(`${f.name}`, { description: BACKEND ? 'Only the file details were recorded for this entry.' : 'File preview is not available in the demo.' });
+                          }} className="flex items-center gap-2 text-[13px] text-ink-900 hover:text-brand-700">
                           {fileIcon(f.name)}
                           {f.name}
                         </button>

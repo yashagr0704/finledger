@@ -2,15 +2,29 @@
 
 Practice management for Chartered Accountant firms: clients, recurring compliance work, task assignment, review workflows and deadlines. Branding lives in `src/config/brand.ts`.
 
-This is a fully interactive frontend prototype. Data is seeded into the browser (localStorage) through a repository abstraction, so a real backend can replace it later.
+It runs in two modes:
+
+- **Demo** (default, hosted on GitHub Pages): a seeded firm in the browser's localStorage, with a role switcher and no sign-in.
+- **Backend**: a Node/Fastify API with PostgreSQL, real accounts and invites, server-side permissions, file storage, a scheduler and live updates. See **[docs/BACKEND.md](docs/BACKEND.md)** for the architecture, setup, deployment and roadmap.
 
 ## Run
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
+npm run dev      # demo mode: http://localhost:5173
 npm run build    # type-check + production build
 ```
+
+With the backend:
+
+```bash
+npm run db:seed -- --password demo1234   # demo firm in embedded Postgres (.data/)
+npm run server:dev                        # API on :8787
+npm run dev:backend                       # web app on :5173 → sign in as rohan@mehtaiyer.demo / demo1234
+npm run test:server                       # API test suite
+```
+
+Deploy with the included `Dockerfile` or `render.yaml` (details in docs/BACKEND.md).
 
 ## Hosting
 
@@ -38,17 +52,23 @@ Live demo: https://yashagr0704.github.io/finledger/
 | --- | --- |
 | `src/types` | Typed domain model |
 | `src/data/seed.ts` | Deterministic demo firm (10 people, 14 clients, ~50 live tasks + 6 months of history) |
-| `src/data/repository.ts` | Data access boundary (localStorage implementation) |
-| `src/store/store.ts` | All mutations: permission checks, activity log, in-app notifications |
+| `src/data/repository.ts` | Data access boundary (localStorage implementation, demo mode) |
+| `src/domain/` | Business rules shared by browser and server: commands, argument schemas, per-user scoping, scheduler |
+| `src/store/store.ts` | App state; runs commands locally and, in backend mode, sends them to the API |
+| `src/api/client.ts` | API client (backend mode) |
+| `server/` | Fastify API, PostgreSQL persistence, auth, files, jobs, CLI and tests |
 | `src/lib/` | Permissions, workflow transitions, metrics, recurrence periods, filters |
 | `src/components/` | UI primitives (Radix + Tailwind), task drawer/forms/table/board, layout shell |
 | `src/pages/` | Overview, Tasks, Clients, Calendar, Review Queue, Team, Reports, Notifications, Settings |
 
 ## Known limitations
 
-- No backend or real authentication; data is per-browser.
-- Recurring task generation is simulated (run on demand from Settings → Recurring templates); there is no background scheduler.
-- Notifications are in-app only; no email, SMS or WhatsApp is sent.
-- Attachments store file names and sizes only, not file contents.
-- Compliance dates are configurable demo schedules, not authoritative statutory due dates.
-- Simulated in the demo: notice fetching, GSTIN lookup (a small fictional directory; format and check digit are validated for real), WhatsApp sending and broadcasts, AI festival suggestions (template-based), invoice PDF/email.
+Demo mode (GitHub Pages):
+
+- No real authentication; data is per-browser.
+- Recurring generation runs only on demand; attachments store file names only; notifications are in-app only.
+
+Both modes:
+
+- Compliance dates are configurable schedules, not authoritative statutory due dates.
+- These features need a provider account to be real: automatic notice fetching, GSTIN name/address lookup, WhatsApp sending, invoice PDF/e-invoicing, AI festival suggestions (template-based today). See docs/BACKEND.md §4–5.

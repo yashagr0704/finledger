@@ -8,7 +8,9 @@ import { EmptyState, Skeleton } from '@/components/ui/misc';
 import { Button } from '@/components/ui/button';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UIProvider } from '@/store/ui';
-import { useCurrentUser } from '@/store/store';
+import { useCurrentUser, useSessionStatus } from '@/store/store';
+import { BACKEND } from '@/api/client';
+import { AcceptInvitePage, ConnectionErrorPage, LoginPage, RegisterPage } from '@/pages/Auth';
 import { canAccessBilling, canUseWhatsApp, canViewReports, canViewTeam } from '@/lib/permissions';
 import type { User } from '@/types';
 
@@ -76,15 +78,40 @@ function RouteErrorBoundary({ children }: { children: ReactNode }) {
 export default function App() {
   // Brief boot state so the loading skeleton is exercised on first paint.
   const [ready, setReady] = useState(false);
+  const status = useSessionStatus();
   useEffect(() => {
     const t = setTimeout(() => setReady(true), 250);
     return () => clearTimeout(t);
   }, []);
+  const toaster = <Toaster position="bottom-left" toastOptions={{ className: 'text-[13px]' }} richColors closeButton />;
+
+  // Backend mode: sign-in screens until a session exists.
+  if (BACKEND && status !== 'ready') {
+    return (
+      <>
+        {status === 'loading' ? (
+          <div className="p-6">
+            <PageSkeleton />
+          </div>
+        ) : status === 'error' ? (
+          <ConnectionErrorPage />
+        ) : (
+          <Routes>
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/accept-invite" element={<AcceptInvitePage />} />
+            <Route path="*" element={<LoginPage />} />
+          </Routes>
+        )}
+        {toaster}
+      </>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={300}>
       <UIProvider>
         <Routes>
+          {BACKEND && <Route path="/accept-invite" element={<AcceptInvitePage />} />}
           <Route element={<AppShell />}>
             <Route
               path="*"
@@ -125,7 +152,7 @@ export default function App() {
             />
           </Route>
         </Routes>
-        <Toaster position="bottom-left" toastOptions={{ className: 'text-[13px]' }} richColors closeButton />
+        {toaster}
       </UIProvider>
     </TooltipProvider>
   );

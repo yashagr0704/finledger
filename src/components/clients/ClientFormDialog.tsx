@@ -15,8 +15,16 @@ import { checkGstin, DEMO_GST_DIRECTORY, lookupGstin, type GstRecord } from '@/l
 import { formatFileSize } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { ENTITY_TYPES, type TaxHead } from '@/types';
-import { store, useDb } from '@/store/store';
+import { store, useCaps, useDb } from '@/store/store';
 import { useUI } from '@/store/ui';
+import { api, BACKEND } from '@/api/client';
+import { uploadFiles } from '@/lib/uploads';
+
+/** Uploads queued KYC files (backend mode) and files them in the client's Drive → KYC folder. */
+async function saveKyc(clientId: string, files: { file: File }[]) {
+  const uploaded = await uploadFiles(files.map((f) => f.file), { clientId });
+  if (uploaded.length) store.addDriveFiles(clientId, 'KYC', uploaded);
+}
 
 const PAN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
@@ -107,7 +115,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
   const staff = db.users.filter((u) => u.status === 'active');
   const [section, setSection] = useState<Section>('basic');
   const [gstOpen, setGstOpen] = useState(false);
-  const [queued, setQueued] = useState<{ name: string; sizeKb: number }[]>([]);
+  const [queued, setQueued] = useState<{ name: string; sizeKb: number; file: File }[]>([]);
   const [showPw, setShowPw] = useState<Set<number>>(new Set());
 
   const {
@@ -215,14 +223,14 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
     };
     if (editing) {
       if (store.updateClient(editing.id, input)) {
-        if (queued.length) store.addDriveFiles(editing.id, 'KYC', queued);
+        if (queued.length) void saveKyc(editing.id, queued);
         toast.success('Client updated', { description: input.exitDate ? 'Client marked as exited — messaging is switched off.' : undefined });
         onDone();
       }
     } else {
       const c = store.createClient(input);
       if (c) {
-        if (queued.length) store.addDriveFiles(c.id, 'KYC', queued);
+        if (queued.length) void saveKyc(c.id, queued);
         toast.success(`${c.name} added`, { description: `Client code ${c.code}` });
         onDone();
         navigate(`/clients/${c.id}`);
@@ -477,7 +485,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
                 </Select>
                 <Input placeholder="Username / user ID" aria-label="Username" {...register(`portalLogins.${i}.username` as const)} />
                 <div className="relative">
-                  <Input type={showPw.has(i) ? 'text' : 'password'} placeholder="Password" aria-label="Password" className="pr-8" {...register(`portalLogins.${i}.password` as const)} />
+                  <Input type={showPw.has(i) ? 'text' : 'password'} placeholder={editing?.portalLogins?.[i]?.hasPassword ? 'Saved — leave blank to keep' : 'Password'} aria-label="Password" className="pr-8" {...register(`portalLogins.${i}.password` as const)} />
                   <button type="button" onClick={() => setShowPw((s) => (s.has(i) ? (s.delete(i), new Set(s)) : new Set(s).add(i)))} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" aria-label="Toggle password">
                     {showPw.has(i) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                   </button>
@@ -490,7 +498,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
             <Button size="sm" onClick={() => logins.append({ portalId: 'pt_gst', username: '', password: '' })}>
               <Plus /> Add login
             </Button>
-            <p className="pt-1 text-2xs text-ink-400">In production, passwords are encrypted and only visible to permitted users.</p>
+            <p className="pt-1 text-2xs text-ink-400">{BACKEND ? 'Passwords are encrypted on the server. Saved passwords aren’t shown here — use Portals to reveal one.' : 'In production, passwords are encrypted and only visible to permitted users.'}</p>
           </div>
         )}
 
@@ -505,7 +513,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
                 multiple
                 className="hidden"
                 onChange={(e) => {
-                  setQueued((q) => [...q, ...Array.from(e.target.files ?? []).map((f) => ({ name: f.name, sizeKb: f.size / 1024 }))]);
+                  setQueued((q) => [...q, ...Array.from(e.target.files ?? []).map((f) => ({ name: f.name, sizeKb: f.size / 1024, file: f }))]);
                   e.target.value = '';
                 }}
               />
@@ -524,7 +532,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
                 ))}
               </ul>
             )}
-            <p className="mt-2 text-2xs text-ink-400">Saved to the client’s Drive → KYC folder. The demo keeps file names only.</p>
+            <p className="mt-2 text-2xs text-ink-400">Saved to the client’s Drive → KYC folder. {BACKEND ? 'Files are uploaded when you save.' : 'The demo keeps file names only.'}</p>
           </div>
         )}
       </DialogBody>
@@ -540,6 +548,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
 }
 
 function GstinDialog({ open, initial, onClose, onApply }: { open: boolean; initial: string; onClose: () => void; onApply: (rec: GstRecord | null, gstin: string, pan: string) => void }) {
+  const caps = useCaps();
   const [value, setValue] = useState(initial);
   const [state, setState] = useState<'idle' | 'loading' | 'done'>('idle');
   const [error, setError] = useState('');
@@ -550,6 +559,13 @@ function GstinDialog({ open, initial, onClose, onApply }: { open: boolean; initi
     if (!chk.ok) return setError(chk.error);
     setError('');
     setState('loading');
+    if (BACKEND) {
+      api.gstin(value).then(
+        (r) => (setResult({ rec: (r.record as GstRecord | null) ?? null, pan: r.pan, stateName: r.state, checksumOk: r.checksumOk }), setState('done')),
+        (e: Error) => (setError(e.message), setState('idle')),
+      );
+      return;
+    }
     setTimeout(() => {
       setResult({ rec: lookupGstin(value) ?? null, pan: chk.pan, stateName: chk.state, checksumOk: chk.checksumOk });
       setState('done');
@@ -572,14 +588,16 @@ function GstinDialog({ open, initial, onClose, onApply }: { open: boolean; initi
                 aria-invalid={!!error}
               />
             </Field>
-            <div className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-500">
-              Try a demo GSTIN:
-              {DEMO_GST_DIRECTORY.map((r) => (
-                <button key={r.gstin} type="button" onClick={() => (setValue(r.gstin), setResult(null), setError(''))} className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-ink-700 hover:border-brand-300">
-                  {r.gstin}
-                </button>
-              ))}
-            </div>
+            {caps.gstLookup === 'demo' && (
+              <div className="flex flex-wrap items-center gap-1.5 text-2xs text-ink-500">
+                Try a demo GSTIN:
+                {DEMO_GST_DIRECTORY.map((r) => (
+                  <button key={r.gstin} type="button" onClick={() => (setValue(r.gstin), setResult(null), setError(''))} className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-ink-700 hover:border-brand-300">
+                    {r.gstin}
+                  </button>
+                ))}
+              </div>
+            )}
             {state === 'loading' && (
               <p className="flex items-center gap-2 text-xs text-ink-500">
                 <Loader2 className="size-3.5 animate-spin" /> Looking up taxpayer details…

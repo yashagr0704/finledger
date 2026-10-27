@@ -48,6 +48,8 @@ import { TaskDrawer } from '@/components/tasks/TaskDrawer';
 import { TaskFormDialog } from '@/components/tasks/TaskFormDialog';
 import { ClientFormDialog } from '@/components/clients/ClientFormDialog';
 import { InviteDialog } from '@/components/layout/InviteDialog';
+import { ChangePasswordDialog } from '@/components/layout/ChangePasswordDialog';
+import { BACKEND } from '@/api/client';
 import { CommandPalette } from './CommandPalette';
 import { NotificationsPopover } from './NotificationsPopover';
 
@@ -267,12 +269,14 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
   const navigate = useNavigate();
   const { setSearchOpen, openTaskForm, openClientForm, setInviteOpen } = useUI();
   const { confirm, dialog } = useConfirm();
+  const [pwOpen, setPwOpen] = useState(false);
   const active = db.users.filter((u) => u.status === 'active');
   const canCreate = canCreateTask(me) || canCreateClient(me) || canManageTeam(me);
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-white/90 px-3 backdrop-blur sm:px-4">
       {dialog}
+      {BACKEND && <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />}
       <Button size="icon" variant="ghost" className="lg:hidden" onClick={onMenu} aria-label="Open navigation">
         <MenuIcon />
       </Button>
@@ -291,17 +295,19 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
 
       <div className="ml-auto flex items-center gap-1.5">
         {/* Demo role switcher */}
-        <Menu>
-          <MenuTrigger asChild>
-            <button className="hidden h-8 items-center gap-1.5 rounded-md border border-dashed border-amber-300 bg-amber-50 px-2.5 text-xs font-medium text-amber-800 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 md:flex">
-              <ShieldCheck className="size-3.5" />
-              Demo: {ROLE_META[me.role].short}
-            </button>
-          </MenuTrigger>
-          <MenuContent className="w-72">
-            <RoleSwitchItems />
-          </MenuContent>
-        </Menu>
+        {!BACKEND && (
+          <Menu>
+            <MenuTrigger asChild>
+              <button className="hidden h-8 items-center gap-1.5 rounded-md border border-dashed border-amber-300 bg-amber-50 px-2.5 text-xs font-medium text-amber-800 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50 md:flex">
+                <ShieldCheck className="size-3.5" />
+                Demo: {ROLE_META[me.role].short}
+              </button>
+            </MenuTrigger>
+            <MenuContent className="w-72">
+              <RoleSwitchItems />
+            </MenuContent>
+          </Menu>
+        )}
 
         {canCreate && (
           <Menu>
@@ -358,30 +364,43 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
               <Settings /> Settings
             </MenuItem>
             <MenuSeparator />
-            <div className="md:hidden">
-              <RoleSwitchItems />
-              <MenuSeparator />
-            </div>
-            <MenuItem
-              onSelect={() =>
-                confirm({
-                  title: 'Reset demo data?',
-                  description: 'All changes you made in this browser will be discarded and the demo firm will be re-seeded.',
-                  confirmLabel: 'Reset demo',
-                  tone: 'danger',
-                  onConfirm: () => {
-                    store.resetDemo();
-                    navigate('/');
-                    toast.success('Demo data reset');
-                  },
-                })
-              }
-            >
-              <RotateCcw /> Reset demo data
-            </MenuItem>
-            <MenuItem disabled>
-              <LogOut /> Sign out (no auth in demo)
-            </MenuItem>
+            {BACKEND ? (
+              <>
+                <MenuItem onSelect={() => setPwOpen(true)}>
+                  <KeyRound /> Change password
+                </MenuItem>
+                <MenuItem onSelect={() => void store.signOut().then(() => navigate('/', { replace: true }))}>
+                  <LogOut /> Sign out
+                </MenuItem>
+              </>
+            ) : (
+              <>
+                <div className="md:hidden">
+                  <RoleSwitchItems />
+                  <MenuSeparator />
+                </div>
+                <MenuItem
+                  onSelect={() =>
+                    confirm({
+                      title: 'Reset demo data?',
+                      description: 'All changes you made in this browser will be discarded and the demo firm will be re-seeded.',
+                      confirmLabel: 'Reset demo',
+                      tone: 'danger',
+                      onConfirm: () => {
+                        store.resetDemo();
+                        navigate('/');
+                        toast.success('Demo data reset');
+                      },
+                    })
+                  }
+                >
+                  <RotateCcw /> Reset demo data
+                </MenuItem>
+                <MenuItem disabled>
+                  <LogOut /> Sign out (no auth in demo)
+                </MenuItem>
+              </>
+            )}
           </MenuContent>
         </Menu>
       </div>

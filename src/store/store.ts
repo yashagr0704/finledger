@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
-import { api, ApiError, BACKEND, type Capabilities } from '@/api/client';
+import { api, ApiError, BACKEND, DEMO_CAPS, type Capabilities } from '@/api/client';
 import { localRepository, sessionStore, type DataRepository } from '@/data/repository';
 import { emptyDatabase } from '@/data/empty';
 import type { CommandArgs, CommandName, CommandResult } from '@/domain/commands';
@@ -89,7 +89,6 @@ class LedgerStore {
       return this.set({ status: 'error' });
     }
     await this.refresh();
-    this.listen();
   }
 
   /** Re-reads everything this user may see from the server. */
@@ -102,6 +101,7 @@ class LedgerStore {
       const b = await api.bootstrap();
       this.serverVersion = b.version;
       this.set({ db: b.db, currentUserId: b.meId, caps: b.caps, status: 'ready' });
+      this.listen();
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) this.set({ status: 'signed_out', db: emptyDatabase() });
       else if (this.state.status === 'loading') this.set({ status: 'error' });
@@ -147,11 +147,13 @@ class LedgerStore {
     });
   }
 
+  /** Resolves once every queued change has reached the server (immediately in demo mode). */
+  settled = () => this.queue;
+
   signIn = async (email: string, password: string) => {
     await api.login(email, password);
     this.set({ status: 'loading' });
     await this.refresh();
-    this.listen();
   };
 
   signOut = async () => {
@@ -239,7 +241,7 @@ class LedgerStore {
   deleteReferrer = (...a: CommandArgs<'deleteReferrer'>) => this.exec('deleteReferrer', ...a);
 }
 
-function showInviteLink(url: string, emailed?: boolean) {
+export function showInviteLink(url: string, emailed?: boolean) {
   toast.success(emailed ? 'Invitation emailed' : 'Invitation link ready', {
     description: emailed ? url : 'Share this link with the new member so they can set a password.',
     duration: 15000,
@@ -258,7 +260,7 @@ export function useAppState<T>(selector: (s: State) => T): T {
 
 export const useDb = () => useAppState((s) => s.db);
 export const useSessionStatus = () => useAppState((s) => s.status);
-export const useCaps = () => useAppState((s) => s.caps);
+export const useCaps = () => useAppState((s) => s.caps ?? DEMO_CAPS);
 
 export function useCurrentUser() {
   const db = useDb();

@@ -12,6 +12,7 @@ import { ROLE_META } from '@/lib/constants';
 import { PERMISSION_META, ROLE_DEFAULTS } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 import { store, useDb } from '@/store/store';
+import { BACKEND } from '@/api/client';
 import type { Permissions, Role, User } from '@/types';
 
 const schema = z.object({
@@ -97,7 +98,8 @@ function EmployeeForm({ user, onClose }: { user?: User; onClose: () => void }) {
     } else {
       const u = store.inviteMember({ ...common, managerId: role === 'employee' ? v.managerId : undefined });
       if (u) {
-        toast.success(`${u.name} added`, { description: 'Simulated invitation — no email was sent.' });
+        // In backend mode the server replies with the invite link (see store.showInviteLink).
+        if (!BACKEND) toast.success(`${u.name} added`, { description: 'Simulated invitation — no email was sent.' });
         onClose();
       }
     }
@@ -142,14 +144,16 @@ function EmployeeForm({ user, onClose }: { user?: User; onClose: () => void }) {
             <Field label="Username" htmlFor="em-user" error={errors.username?.message} required>
               <Input id="em-user" autoComplete="off" aria-invalid={!!errors.username} {...register('username')} />
             </Field>
-            <Field label={user ? 'Reset password' : 'Temporary password'} htmlFor="em-pw" hint="Demo only — not stored. Real sign-in will use the identity provider.">
-              <div className="relative">
-                <Input id="em-pw" type={showPw ? 'text' : 'password'} autoComplete="new-password" className="pr-8" {...register('password')} />
-                <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" aria-label="Toggle password">
-                  {showPw ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                </button>
-              </div>
-            </Field>
+            {!BACKEND && (
+              <Field label={user ? 'Reset password' : 'Temporary password'} htmlFor="em-pw" hint="Demo only — not stored. Real sign-in will use the identity provider.">
+                <div className="relative">
+                  <Input id="em-pw" type={showPw ? 'text' : 'password'} autoComplete="new-password" className="pr-8" {...register('password')} />
+                  <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" aria-label="Toggle password">
+                    {showPw ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                  </button>
+                </div>
+              </Field>
+            )}
           </div>
         ) : (
           <div className="space-y-4">

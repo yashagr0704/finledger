@@ -44,6 +44,9 @@ export interface Capabilities {
   storage: 'local' | 's3';
 }
 
+/** What the demo build (no server) can do: everything integration-backed is simulated. */
+export const DEMO_CAPS: Capabilities = { whatsapp: 'simulated', email: false, gstLookup: 'demo', noticeFetch: 'demo', storage: 'local' };
+
 export interface Bootstrap {
   db: Database;
   meId: string;

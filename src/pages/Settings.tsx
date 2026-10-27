@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { store, useCurrentUser, useDb } from '@/store/store';
 import type { TaskTemplate } from '@/types';
 import { brand } from '@/config/brand';
+import { BACKEND } from '@/api/client';
 
 type Section = 'profile' | 'firm' | 'config' | 'users' | 'templates' | 'categories' | 'roles' | 'demo';
 
@@ -36,7 +37,7 @@ export default function SettingsPage() {
     { id: 'templates', label: 'Recurring templates', icon: <Repeat />, show: me.role !== 'employee' },
     { id: 'categories', label: 'Task categories', icon: <Layers />, show: true },
     { id: 'roles', label: 'Permission reference', icon: <ShieldCheck />, show: true },
-    { id: 'demo', label: 'Demo data', icon: <RotateCcw />, show: true },
+    { id: 'demo', label: 'Demo data', icon: <RotateCcw />, show: !BACKEND },
   ];
   const visible = sections.filter((s) => s.show);
   const requested = params.get('section') as Section;
@@ -44,7 +45,7 @@ export default function SettingsPage() {
 
   return (
     <div className="animate-slide-up">
-      <PageHeader title="Settings" description={admin ? 'Firm configuration, templates and demo controls.' : 'Your profile and workspace information.'} />
+      <PageHeader title="Settings" description={admin ? BACKEND ? 'Firm configuration, users and templates.' : 'Firm configuration, templates and demo controls.' : 'Your profile and workspace information.'} />
       <div className="grid gap-5 lg:grid-cols-[200px_1fr]">
         <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Settings sections">
           {visible.map((s) => (
@@ -179,7 +180,15 @@ function TemplatesSection() {
       <div className="flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50/60 px-3 py-2 text-xs text-sky-900">
         <Info className="mt-px size-3.5 shrink-0" />
         <span>
-          Recurring generation is <b>simulated</b>: there is no background scheduler in this demo. Use “Generate next period” to create the next set of tasks on demand. Due-date rules are configurable examples, not statutory dates.
+          {BACKEND ? (
+            <>
+              The server creates each period’s tasks automatically about 20 days before the due date. Use “Generate next period” to create them earlier. Due-date rules are configurable examples, not statutory dates.
+            </>
+          ) : (
+            <>
+              Recurring generation is <b>simulated</b>: there is no background scheduler in this demo. Use “Generate next period” to create the next set of tasks on demand. Due-date rules are configurable examples, not statutory dates.
+            </>
+          )}
         </span>
       </div>
       <Card>
@@ -243,7 +252,7 @@ function TemplatesSection() {
                           onClick={() =>
                             confirm({
                               title: `Generate tasks for ${next?.label}?`,
-                              description: `Creates “${t.name} — ${next?.label}” for each applicable client that doesn’t already have it. This is a simulated run of the recurring scheduler.`,
+                              description: `Creates “${t.name} — ${next?.label}” for each applicable client that doesn’t already have it. ${BACKEND ? 'The scheduler would otherwise do this about 20 days before the due date.' : 'This is a simulated run of the recurring scheduler.'}`,
                               confirmLabel: 'Generate tasks',
                               onConfirm: () => {
                                 const r = store.generateFromTemplate(t.id);

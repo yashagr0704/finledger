@@ -10,6 +10,10 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },
   },
+  // Backend mode in development: `npm run server:dev` listens on 8787; proxy the API so cookies stay same-origin.
+  server: {
+    proxy: { '/api': { target: process.env.API_PROXY ?? 'http://localhost:8787', changeOrigin: false } },
+  },
   build: {
     rollupOptions: {
       output: singleFile
