@@ -3,12 +3,13 @@ import { Copy, ExternalLink, Eye, EyeOff, Info, KeyRound, Plus, Search, Trending
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, EmptyState, PageHeader } from '@/components/ui/misc';
-import { Dialog, DialogBody, DialogContent, DialogFooter } from '@/components/ui/dialog';
-import { Field, Input, Select } from '@/components/ui/form';
+import { Input, Select } from '@/components/ui/form';
+import { PortalDialog } from '@/components/portals/PortalDialog';
+import { PortalLoginButton } from '@/components/portals/PortalLoginButton';
 import { canManageMasters, visibleClients } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
 import { store, useCurrentUser, useDb } from '@/store/store';
-import type { Portal } from '@/types';
+import type { Portal, PortalLogin } from '@/types';
 import { api, BACKEND } from '@/api/client';
 
 export default function PortalsPage() {
@@ -86,6 +87,8 @@ export default function PortalsPage() {
   );
 }
 
+
+
 function ClientCredentials() {
   const db = useDb();
   const me = useCurrentUser();
@@ -97,17 +100,17 @@ function ClientCredentials() {
   const portals = new Map(db.portals.map((p) => [p.id, p]));
   const rows = visibleClients(db, me)
     .filter((c) => !c.exitDate)
-    .flatMap((c) => (c.portalLogins ?? []).map((l, i) => ({ key: `${c.id}_${i}`, index: i, client: c, login: l, portal: portals.get(l.portalId) })))
+    .flatMap((c) => (c.portalLogins ?? []).map((l, i) => ({ key: `${c.id}_${l.id ?? i}`, index: i, client: c, login: l, portal: portals.get(l.portalId) })))
     .filter((r) => (!portal || r.login.portalId === portal) && (!q || r.client.name.toLowerCase().includes(q.toLowerCase())));
-  const passwordOf = async (key: string, clientId: string, index: number, login: { password: string }) => {
+  const passwordOf = async (key: string, clientId: string, index: number, login: PortalLogin) => {
     if (!BACKEND) return login.password;
     const known = fetched.get(key);
     if (known !== undefined) return known;
-    const { password } = await api.revealLogin(clientId, index);
+    const { password } = await api.revealLogin(clientId, login.id ?? index, login.portalId);
     setFetched((m) => new Map(m).set(key, password));
     return password;
   };
-  const toggleReveal = (key: string, clientId: string, index: number, login: { password: string }) => {
+  const toggleReveal = (key: string, clientId: string, index: number, login: PortalLogin) => {
     if (revealed.has(key)) return setRevealed((s) => (s.delete(key), new Set(s)));
     passwordOf(key, clientId, index, login).then(
       () => setRevealed((s) => new Set(s).add(key)),
@@ -184,13 +187,7 @@ function ClientCredentials() {
                       </button>
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-right">
-                    {p && (
-                      <Button size="sm" onClick={() => (store.trackPortalOpen(p.id), window.open(p.url, '_blank', 'noopener'))}>
-                        Open <ExternalLink />
-                      </Button>
-                    )}
-                  </td>
+                  <td className="px-4 py-2 text-right">{p && <PortalLoginButton target={{ client, login, index, portal: p }} />}</td>
                 </tr>
               ))}
             </tbody>
@@ -199,54 +196,9 @@ function ClientCredentials() {
       )}
       <p className={cn('flex items-start gap-1.5 border-t border-line px-4 py-2.5 text-2xs text-ink-500')}>
         <Info className="mt-px size-3 shrink-0" />
-        Demo credentials are fictional. In production these would be encrypted, visible only to permitted users, and every reveal would be logged. Automatic sign-in isn’t possible on most government portals because they require captcha or OTP.
+        {BACKEND ? 'Passwords are encrypted on the server and every reveal or login is logged.' : 'Demo credentials are fictional.'} Login fills the sign-in form when the LedgerFlow Portal Helper extension is installed. CAPTCHA, OTP and DSC steps always stay with you.
       </p>
     </Card>
   );
 }
 
-function PortalDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [name, setName] = useState('');
-  const [short, setShort] = useState('');
-  const [url, setUrl] = useState('https://');
-  const [description, setDescription] = useState('');
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      {open && (
-        <DialogContent title="Add portal" description="Shows up for everyone in the firm." size="sm">
-          <form
-            className="flex min-h-0 flex-1 flex-col"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (store.savePortal({ name, short: short || name.slice(0, 4).toUpperCase(), url, description })) {
-                toast.success(`${name} added`);
-                onClose();
-              }
-            }}
-          >
-            <DialogBody className="space-y-3">
-              <Field label="Portal name" htmlFor="pt-name" required>
-                <Input id="pt-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. SEZ Online" />
-              </Field>
-              <Field label="Short label" htmlFor="pt-short" hint="2–4 letters shown on the tile">
-                <Input id="pt-short" maxLength={4} value={short} onChange={(e) => setShort(e.target.value.toUpperCase())} />
-              </Field>
-              <Field label="Website address" htmlFor="pt-url" required>
-                <Input id="pt-url" value={url} onChange={(e) => setUrl(e.target.value)} />
-              </Field>
-              <Field label="What it’s used for" htmlFor="pt-desc">
-                <Input id="pt-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
-              </Field>
-            </DialogBody>
-            <DialogFooter>
-              <Button onClick={onClose}>Cancel</Button>
-              <Button type="submit" variant="primary" disabled={!name.trim()}>
-                Add portal
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      )}
-    </Dialog>
-  );
-}

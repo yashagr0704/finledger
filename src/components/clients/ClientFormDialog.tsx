@@ -15,7 +15,9 @@ import { checkGstin, DEMO_GST_DIRECTORY, lookupGstin, type GstRecord } from '@/l
 import { formatFileSize } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { ENTITY_TYPES, type TaxHead } from '@/types';
-import { store, useCaps, useDb } from '@/store/store';
+import { store, useCaps, useCurrentUser, useDb } from '@/store/store';
+import { canManageMasters } from '@/lib/permissions';
+import { PortalDialog } from '@/components/portals/PortalDialog';
 import { useUI } from '@/store/ui';
 import { api, BACKEND } from '@/api/client';
 import { uploadFiles } from '@/lib/uploads';
@@ -66,7 +68,11 @@ const schema = z.object({
   notes: z.string().max(1000),
   contacts: z.array(z.object({ name: z.string(), designation: z.string(), phone: z.string(), email: z.string() })),
   customFields: z.array(z.object({ label: z.string(), value: z.string() })),
-  portalLogins: z.array(z.object({ portalId: z.string(), username: z.string(), password: z.string() })),
+  portalLogins: z.array(
+    z
+      .object({ id: z.string().optional(), portalId: z.string().min(1, 'Choose a portal'), username: z.string().trim().max(120), password: z.string().max(200), hasPassword: z.boolean().optional(), extra: z.string().trim().max(200) })
+      .refine((l) => !l.password || l.username, { message: 'Enter the login ID for this password', path: ['username'] }),
+  ),
 });
 type Values = z.infer<typeof schema>;
 type Section = 'basic' | 'tax' | 'contacts' | 'groups' | 'custom' | 'logins' | 'attachments';
@@ -87,7 +93,7 @@ export function ClientFormDialog() {
     <Dialog open={!!clientForm} onOpenChange={(v) => !v && closeClientForm()}>
       {clientForm && (
         <DialogContent title={clientForm.clientId ? 'Edit client' : 'Add client'} description={clientForm.clientId ? undefined : 'Only the name, code and primary contact are required. Tax identifiers are optional.'} size="lg" className="max-w-4xl">
-          <ClientForm clientId={clientForm.clientId} onDone={closeClientForm} />
+          <ClientForm clientId={clientForm.clientId} initialSection={clientForm.section} onDone={closeClientForm} />
         </DialogContent>
       )}
     </Dialog>
@@ -107,13 +113,15 @@ function suggestCode(name: string, taken: string[]) {
   return code;
 }
 
-function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => void }) {
+function ClientForm({ clientId, initialSection, onDone }: { clientId?: string; initialSection?: Section; onDone: () => void }) {
   const db = useDb();
+  const me = useCurrentUser();
   const navigate = useNavigate();
+  const [addingPortal, setAddingPortal] = useState(false);
   const editing = clientId ? db.clients.find((c) => c.id === clientId) : undefined;
   const managers = db.users.filter((u) => u.status === 'active' && (u.role === 'manager' || u.role === 'admin'));
   const staff = db.users.filter((u) => u.status === 'active');
-  const [section, setSection] = useState<Section>('basic');
+  const [section, setSection] = useState<Section>(initialSection ?? 'basic');
   const [gstOpen, setGstOpen] = useState(false);
   const [queued, setQueued] = useState<{ name: string; sizeKb: number; file: File }[]>([]);
   const [showPw, setShowPw] = useState<Set<number>>(new Set());
@@ -144,7 +152,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
           serviceIds: editing.serviceIds ?? [],
           contacts: editing.contacts ?? [],
           customFields: editing.customFields ?? [],
-          portalLogins: editing.portalLogins ?? [],
+          portalLogins: (editing.portalLogins ?? []).map((l) => ({ ...l, hasPassword: l.hasPassword || !!l.password, password: '', extra: l.extra ?? '' })),
         }
       : {
           taxesApplicable: ['Income Tax'],
@@ -219,7 +227,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
       exitDate: v.status === 'inactive' && v.exitDate ? v.exitDate : undefined,
       contacts: v.contacts.filter((c) => c.name.trim()),
       customFields: v.customFields.filter((c) => c.label.trim()),
-      portalLogins: v.portalLogins.filter((l) => l.username.trim()),
+      portalLogins: v.portalLogins.filter((l) => l.username.trim()).map((l) => ({ ...l, extra: l.extra || undefined })),
     };
     if (editing) {
       if (store.updateClient(editing.id, input)) {
@@ -248,7 +256,7 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
       })}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <div className="border-b border-line px-5 pt-3">
+      <div className="shrink-0 border-b border-line px-5 pt-3">
         <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
           <span className="text-xs font-medium text-ink-700">
             Taxes applicable <span className="text-red-500">*</span>
@@ -282,12 +290,12 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
         />
       </div>
       {errorSections.length > 0 && (
-        <p className="flex items-center gap-1.5 bg-red-50 px-5 py-1.5 text-xs text-red-700">
+        <p className="flex shrink-0 items-center gap-1.5 bg-red-50 px-5 py-1.5 text-xs text-red-700">
           <AlertTriangle className="size-3.5" /> Check: {errorSections.map((s) => ({ basic: 'Basic Details', tax: 'Tax Details', contacts: 'Contact Persons', groups: 'Client Groups', custom: 'Custom Fields', logins: 'Login Details', attachments: '' })[s]).join(', ')}
         </p>
       )}
 
-      <DialogBody className="min-h-[380px]">
+      <DialogBody className="min-h-0 sm:min-h-[min(380px,40vh)]">
         {section === 'basic' && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="File no." htmlFor="cl-file">
@@ -459,8 +467,8 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
           <div className="space-y-2">
             {customFields.fields.map((f, i) => (
               <div key={f.id} className="flex gap-2">
-                <Input placeholder="Field name" aria-label="Field name" className="w-56" {...register(`customFields.${i}.label` as const)} />
-                <Input placeholder="Value" aria-label="Value" {...register(`customFields.${i}.value` as const)} />
+                <Input placeholder="Field name" aria-label="Field name" className="w-2/5 min-w-0 shrink-0 sm:w-56" {...register(`customFields.${i}.label` as const)} />
+                <Input placeholder="Value" aria-label="Value" className="min-w-0 flex-1" {...register(`customFields.${i}.value` as const)} />
                 <Button size="icon" variant="ghost" onClick={() => customFields.remove(i)} aria-label="Remove field">
                   <X />
                 </Button>
@@ -474,31 +482,66 @@ function ClientForm({ clientId, onDone }: { clientId?: string; onDone: () => voi
 
         {section === 'logins' && (
           <div className="space-y-2">
-            {logins.fields.map((f, i) => (
-              <div key={f.id} className="grid gap-2 sm:grid-cols-[200px_1fr_1fr_auto]">
-                <Select aria-label="Portal" {...register(`portalLogins.${i}.portalId` as const)}>
-                  {db.portals.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </Select>
-                <Input placeholder="Username / user ID" aria-label="Username" {...register(`portalLogins.${i}.username` as const)} />
-                <div className="relative">
-                  <Input type={showPw.has(i) ? 'text' : 'password'} placeholder={editing?.portalLogins?.[i]?.hasPassword ? 'Saved — leave blank to keep' : 'Password'} aria-label="Password" className="pr-8" {...register(`portalLogins.${i}.password` as const)} />
-                  <button type="button" onClick={() => setShowPw((s) => (s.has(i) ? (s.delete(i), new Set(s)) : new Set(s).add(i)))} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" aria-label="Toggle password">
-                    {showPw.has(i) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                  </button>
-                </div>
-                <Button size="icon" variant="ghost" onClick={() => logins.remove(i)} aria-label="Remove login">
-                  <Trash2 />
-                </Button>
+            {logins.fields.length > 0 && (
+              <div className="hidden gap-2 text-2xs font-medium uppercase tracking-wide text-ink-400 sm:grid sm:grid-cols-[180px_1fr_1fr_1fr_auto]">
+                <span>Portal</span>
+                <span>Login ID / username</span>
+                <span>Password</span>
+                <span>Other details (not secret)</span>
+                <span className="w-8" />
               </div>
-            ))}
-            <Button size="sm" onClick={() => logins.append({ portalId: 'pt_gst', username: '', password: '' })}>
-              <Plus /> Add login
-            </Button>
-            <p className="pt-1 text-2xs text-ink-400">{BACKEND ? 'Passwords are encrypted on the server. Saved passwords aren’t shown here — use Portals to reveal one.' : 'In production, passwords are encrypted and only visible to permitted users.'}</p>
+            )}
+            {logins.fields.map((f, i) => {
+              const err = errors.portalLogins?.[i];
+              const saved = getValues(`portalLogins.${i}.hasPassword`);
+              return (
+                <div key={f.id} className="grid gap-2 rounded-md border border-line p-2 sm:grid-cols-[180px_1fr_1fr_1fr_auto] sm:border-0 sm:p-0">
+                  <Select aria-label="Portal" aria-invalid={!!err?.portalId} {...register(`portalLogins.${i}.portalId` as const)}>
+                    {db.portals.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <div>
+                    <Input placeholder="Login ID / username" aria-label="Login ID" aria-invalid={!!err?.username} autoComplete="off" {...register(`portalLogins.${i}.username` as const)} />
+                    {err?.username && <p className="mt-0.5 text-2xs text-red-600">{err.username.message}</p>}
+                  </div>
+                  <div className="relative">
+                    <Input
+                      type={showPw.has(i) ? 'text' : 'password'}
+                      placeholder={saved ? 'Saved — leave blank to keep' : 'Password'}
+                      aria-label="Password"
+                      autoComplete="new-password"
+                      className="pr-8"
+                      {...register(`portalLogins.${i}.password` as const)}
+                    />
+                    <button type="button" onClick={() => setShowPw((s) => (s.has(i) ? (s.delete(i), new Set(s)) : new Set(s).add(i)))} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" aria-label="Toggle password">
+                      {showPw.has(i) ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                    </button>
+                  </div>
+                  <Input placeholder="e.g. TAN, OTP mobile" aria-label="Other details" {...register(`portalLogins.${i}.extra` as const)} />
+                  <Button size="icon" variant="ghost" onClick={() => logins.remove(i)} aria-label="Remove login">
+                    <Trash2 />
+                  </Button>
+                </div>
+              );
+            })}
+            {!db.portals.length && <p className="text-[13px] text-ink-400">No portals are set up yet.</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" disabled={!db.portals.length} onClick={() => logins.append({ portalId: db.portals[0]?.id ?? '', username: '', password: '', extra: '' })}>
+                <Plus /> Add login
+              </Button>
+              {canManageMasters(me) && (
+                <Button size="sm" variant="ghost" onClick={() => setAddingPortal(true)}>
+                  <Plus /> New portal
+                </Button>
+              )}
+            </div>
+            <p className="pt-1 text-2xs text-ink-400">
+              {BACKEND ? 'Passwords are encrypted on the server and never shown here. Leave a saved password blank to keep it.' : 'Demo: passwords stay in this browser tab only and are not saved to browser storage.'} Don’t put passwords in “Other details”.
+            </p>
+            <PortalDialog open={addingPortal} onClose={() => setAddingPortal(false)} onSaved={(portalId) => logins.append({ portalId, username: '', password: '', extra: '' })} />
           </div>
         )}
 

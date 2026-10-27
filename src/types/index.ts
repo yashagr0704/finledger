@@ -100,11 +100,15 @@ export interface ContactPerson {
 }
 
 export interface PortalLogin {
+  /** Stable id so a saved password follows its login through edits. Older records may lack one. */
+  id?: string;
   portalId: string;
   username: string;
   /** Empty when the server withholds it; fetch on demand. */
   password: string;
   hasPassword?: boolean;
+  /** Non-secret extra sign-in details, e.g. TAN for TRACES or the OTP mobile. */
+  extra?: string;
 }
 
 export type TaskStatus = 'not_started' | 'in_progress' | 'in_review' | 'changes_requested' | 'completed';
@@ -331,6 +335,8 @@ export interface Portal {
   name: string;
   short: string;
   url: string;
+  /** Sign-in page, when it differs from the home page. */
+  loginUrl?: string;
   description: string;
   clicks: number;
   hue: number;

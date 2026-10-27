@@ -329,12 +329,30 @@ function cleanClient(ctx: Ctx, input: Partial<ClientInput>, existing?: Client) {
   if (c.referredById && !ctx.db.referrers.some((r) => r.id === c.referredById)) c.referredById = undefined;
   if (c.serviceIds) c.serviceIds = c.serviceIds.filter((id) => ctx.db.services.some((s) => s.id === id));
   if (c.portalLogins) {
+    const seen = new Set<string>();
     // A blank password means "keep the saved one" (the server never sends passwords out in bulk).
     c.portalLogins = c.portalLogins.map((l) => {
-      const prev = existing?.portalLogins?.find((p) => p.portalId === l.portalId && p.username === l.username);
-      const password = l.password || prev?.password || '';
+      if (!ctx.db.portals.some((p) => p.id === l.portalId)) fail('Unknown portal in login details.');
+      const username = l.username.trim();
+      const key = `${l.portalId}\n${username.toLowerCase()}`;
+      if (seen.has(key)) fail('The same portal login is listed twice.');
+      seen.add(key);
+      const prevs = existing?.portalLogins ?? [];
+      // Match by id first (survives username edits), then by portal + username for older records.
+      // A saved password never moves to a different portal.
+      const prev = (l.id ? prevs.find((p) => p.id === l.id) : undefined) ?? prevs.find((p) => p.portalId === l.portalId && p.username === username);
+      const same = prev?.portalId === l.portalId ? prev : undefined;
+      const password = l.password || same?.password || '';
+      const extra = l.extra?.trim() || undefined;
       // hasPassword only matters on scoped (client-side) copies, where saved passwords are blank.
-      return { portalId: l.portalId, username: l.username, password, ...(!password && prev?.hasPassword ? { hasPassword: true } : {}) };
+      return {
+        id: same?.id ?? ctx.newId('pl'),
+        portalId: l.portalId,
+        username,
+        password,
+        ...(extra ? { extra } : {}),
+        ...(!password && same?.hasPassword ? { hasPassword: true } : {}),
+      };
     });
   }
   if (c.status === 'inactive' && !c.exitDate && !existing?.exitDate) c.exitDate = today();
@@ -612,13 +630,31 @@ export function trackPortalOpen(ctx: Ctx, id: string) {
   found(ctx.db.portals.find((p) => p.id === id), 'Portal').clicks += 1;
 }
 
+/** host + path, lower-cased and without a trailing slash, for spotting the same site twice. */
+function siteKey(url: string) {
+  try {
+    const u = new URL(url);
+    return `${u.hostname.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`.toLowerCase();
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
 export function savePortal(ctx: Ctx, input: Omit<Portal, 'id' | 'clicks' | 'hue'>) {
   assert(canManageMasters(ctx.me), 'Only users who manage masters can add portals.');
-  const p = pick<Portal, 'name' | 'short' | 'url' | 'description'>(input, ['name', 'short', 'url', 'description'] as const);
-  if (!p.name?.trim()) fail('Portal name is required.');
-  if (!p.url || !/^https?:\/\/[^\s]+$/.test(p.url)) fail('Enter a full website address starting with https://');
-  ctx.db.portals.push({ name: p.name.trim(), short: (p.short || p.name.slice(0, 4)).toUpperCase(), url: p.url, description: p.description ?? '', id: ctx.newId('portal'), clicks: 0, hue: Math.floor(Math.random() * 360) });
-  return true;
+  const p = pick<Portal, 'name' | 'short' | 'url' | 'loginUrl' | 'description'>(input, ['name', 'short', 'url', 'loginUrl', 'description'] as const);
+  const name = p.name?.trim();
+  if (!name) fail('Portal name is required.');
+  const isUrl = (v: string) => /^https?:\/\/[^\s]+$/.test(v) && siteKey(v) !== v.toLowerCase();
+  if (!p.url || !isUrl(p.url)) fail('Enter a full website address starting with https://');
+  const loginUrl = p.loginUrl?.trim() || undefined;
+  if (loginUrl && !isUrl(loginUrl)) fail('Enter a full sign-in page address starting with https://');
+  if (ctx.db.portals.some((x) => x.name.trim().toLowerCase() === name.toLowerCase())) fail(`A portal named “${name}” already exists.`);
+  const dup = ctx.db.portals.find((x) => siteKey(x.url) === siteKey(p.url!) || (loginUrl && x.loginUrl && siteKey(x.loginUrl) === siteKey(loginUrl)));
+  if (dup) fail(`That address is already saved as “${dup.name}”.`);
+  const id = ctx.newId('portal');
+  ctx.db.portals.push({ name, short: (p.short || name.slice(0, 4)).toUpperCase(), url: p.url, ...(loginUrl ? { loginUrl } : {}), description: p.description ?? '', id, clicks: 0, hue: Math.floor(Math.random() * 360) });
+  return id;
 }
 
 // ----------------------------------------------------------------- notices

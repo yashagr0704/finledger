@@ -72,7 +72,10 @@ export const api = {
   inviteLink: (userId: string) => request<{ inviteUrl: string; emailed: boolean }>('POST', `/users/${encodeURIComponent(userId)}/invite-link`, {}),
   bootstrap: () => request<Bootstrap>('GET', '/bootstrap'),
   command: (name: CommandName, args: unknown[], ids: ProposedId[]) => request<CommandAck>('POST', `/commands/${name}`, { args, ids }),
-  revealLogin: (clientId: string, index: number) => request<{ password: string }>('GET', `/clients/${encodeURIComponent(clientId)}/logins/${index}`),
+  revealLogin: (clientId: string, ref: string | number, portalId?: string) =>
+    request<{ password: string }>('GET', `/clients/${encodeURIComponent(clientId)}/logins/${encodeURIComponent(ref)}${portalId ? `?portalId=${encodeURIComponent(portalId)}` : ''}`),
+  launchLogin: (clientId: string, ref: string | number, portalId: string) =>
+    request<{ clientId: string; portalId: string; username: string; password: string; extra?: string }>('POST', `/clients/${encodeURIComponent(clientId)}/logins/${encodeURIComponent(ref)}/launch`, { portalId }),
   gstin: (gstin: string) => request<{ record: unknown; pan: string; state: string; checksumOk: boolean; source: 'demo' | 'provider' }>('GET', `/gstin/${encodeURIComponent(gstin)}`),
   async upload(file: File, scope: { taskId?: string; clientId?: string }) {
     const q = new URLSearchParams(scope.taskId ? { taskId: scope.taskId } : { clientId: scope.clientId ?? '' });

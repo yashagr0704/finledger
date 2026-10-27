@@ -31,6 +31,7 @@ import { Input } from '@/components/ui/form';
 import { ActivityFeed } from '@/components/activity';
 import { Avatar, CategoryTag, DueDate, FilingBadge, StatusBadge } from '@/components/badges';
 import { ClientStatusBadge } from '@/components/clients/ClientStatusBadge';
+import { PortalLoginButton } from '@/components/portals/PortalLoginButton';
 import { TaskListItem } from '@/components/tasks/TaskList';
 import { TaskTable } from '@/components/tasks/TaskTable';
 import { FREQUENCY_META, ROLE_META } from '@/lib/constants';
@@ -195,6 +196,71 @@ function Stat({ label, value, tone, icon }: { label: string; value: number; tone
   );
 }
 
+function PortalLoginsCard({ client }: { client: Client }) {
+  const db = useDb();
+  const me = useCurrentUser();
+  const { openClientForm } = useUI();
+  const portals = new Map(db.portals.map((p) => [p.id, p]));
+  const logins = client.portalLogins ?? [];
+  const canEdit = canEditClient(me, client);
+  return (
+    <Card>
+      <CardHeader
+        title="Portal logins"
+        icon={<KeyRound />}
+        action={
+          canEdit && (
+            <Button size="sm" variant="ghost" onClick={() => openClientForm(client.id, 'logins')}>
+              <Pencil /> Manage
+            </Button>
+          )
+        }
+      />
+      {logins.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-line text-2xs uppercase tracking-wide text-ink-400">
+                <th className="px-4 py-1.5 font-medium">Portal</th>
+                <th className="px-2 py-1.5 font-medium">Login ID</th>
+                <th className="px-4 py-1.5 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {logins.map((l, i) => {
+                const portal = portals.get(l.portalId);
+                return (
+                  <tr key={l.id ?? i} className="align-top">
+                    <td className="px-4 py-2 font-medium text-ink-900">{portal?.name ?? 'Removed portal'}</td>
+                    <td className="max-w-[140px] px-2 py-2">
+                      <span className="block truncate font-mono text-ink-800" title={l.username}>
+                        {l.username}
+                      </span>
+                      <span className="text-2xs text-ink-400">{l.password || l.hasPassword ? '••••••••' : 'No password saved'}</span>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <span className="inline-flex items-start justify-end gap-1">
+                        {canEdit && (
+                          <Button size="sm" variant="ghost" onClick={() => openClientForm(client.id, 'logins')}>
+                            Edit
+                          </Button>
+                        )}
+                        {portal && <PortalLoginButton target={{ client, login: l, index: i, portal }} />}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="px-4 py-3 text-xs text-ink-400">No portal logins saved.</p>
+      )}
+    </Card>
+  );
+}
+
 function OverviewTab({ client, tasks }: { client: Client; tasks: ReturnType<typeof useDb>['tasks'] }) {
   const db = useDb();
   const { users } = useLookup();
@@ -291,6 +357,8 @@ function OverviewTab({ client, tasks }: { client: Client; tasks: ReturnType<type
             <p className="text-2xs text-ink-400">Identifiers shown are fictional demo values.</p>
           </dl>
         </Card>
+
+        <PortalLoginsCard client={client} />
 
         <Card>
           <CardHeader title="Engagement team" />

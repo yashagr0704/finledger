@@ -20,7 +20,7 @@ export function DialogContent({
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink-900/30 backdrop-blur-[1px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
       <DialogPrimitive.Content
         className={cn(
-          'fixed left-1/2 top-[8vh] z-50 flex max-h-[84vh] w-[calc(100%-2rem)] -translate-x-1/2 flex-col rounded-xl border border-line bg-white shadow-pop focus:outline-none data-[state=open]:animate-scale-in',
+          'fixed left-1/2 top-[8vh] z-50 flex max-h-[84vh] w-[calc(100%-2rem)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-line bg-white shadow-pop focus:outline-none data-[state=open]:animate-scale-in',
           size === 'sm' && 'max-w-md',
           size === 'md' && 'max-w-xl',
           size === 'lg' && 'max-w-3xl',
@@ -52,7 +52,7 @@ export function DialogBody({ className, ...props }: React.HTMLAttributes<HTMLDiv
 }
 
 export function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('flex items-center justify-end gap-2 border-t border-line bg-slate-50/60 px-5 py-3', className)} {...props} />;
+  return <div className={cn('flex shrink-0 items-center justify-end gap-2 border-t border-line bg-slate-50/60 px-5 py-3', className)} {...props} />;
 }
 
 /** Right-hand drawer built on the same primitive. */

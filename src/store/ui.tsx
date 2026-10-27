@@ -8,6 +8,12 @@ interface TaskFormState {
   defaults?: Partial<TaskInput>;
 }
 
+/** section opens the client form on a specific tab, e.g. Login Details. */
+interface ClientFormState {
+  clientId?: string;
+  section?: 'logins';
+}
+
 interface UIContextValue {
   openTask: (id: string) => void;
   closeTask: () => void;
@@ -15,8 +21,8 @@ interface UIContextValue {
   taskForm: TaskFormState | null;
   openTaskForm: (state: TaskFormState) => void;
   closeTaskForm: () => void;
-  clientForm: { clientId?: string } | null;
-  openClientForm: (clientId?: string) => void;
+  clientForm: ClientFormState | null;
+  openClientForm: (clientId?: string, section?: ClientFormState['section']) => void;
   closeClientForm: () => void;
   inviteOpen: boolean;
   setInviteOpen: (v: boolean) => void;
@@ -30,7 +36,7 @@ const UIContext = createContext<UIContextValue | null>(null);
 export function UIProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = useSearchParams();
   const [taskForm, setTaskForm] = useState<TaskFormState | null>(null);
-  const [clientForm, setClientForm] = useState<{ clientId?: string } | null>(null);
+  const [clientForm, setClientForm] = useState<ClientFormState | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -63,7 +69,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
       openTaskForm: setTaskForm,
       closeTaskForm: () => setTaskForm(null),
       clientForm,
-      openClientForm: (clientId?: string) => setClientForm({ clientId }),
+      openClientForm: (clientId?: string, section?: ClientFormState['section']) => setClientForm({ clientId, section }),
       closeClientForm: () => setClientForm(null),
       inviteOpen,
       setInviteOpen,

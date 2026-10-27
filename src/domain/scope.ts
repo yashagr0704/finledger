@@ -22,7 +22,7 @@ export function scopeDatabase(db: Database, me: User): Database {
     clients: clients.map((c) => ({
       ...c,
       // Passwords are fetched one at a time through an audited endpoint.
-      portalLogins: (c.portalLogins ?? []).map((l) => ({ portalId: l.portalId, username: l.username, password: '', hasPassword: !!l.password })),
+      portalLogins: (c.portalLogins ?? []).map((l) => ({ id: l.id, portalId: l.portalId, username: l.username, password: '', hasPassword: !!l.password, extra: l.extra })),
     })),
     tasks: perms.billing ? tasks : tasks.map((t) => ({ ...t, fee: undefined })),
     comments: db.comments.filter((c) => taskIds.has(c.taskId)),

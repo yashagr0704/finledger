@@ -70,7 +70,7 @@ const clientInput = z
     exitDate: dateKey.optional(),
     contacts: z.array(z.object({ name: s(120), designation: s(80), phone: s(30), email: s(160) })).max(30).optional(),
     customFields: z.array(z.object({ label: s(80), value: s(500) })).max(50).optional(),
-    portalLogins: z.array(z.object({ portalId: id, username: s(120), password: s(200), hasPassword: z.boolean().optional() })).max(30).optional(),
+    portalLogins: z.array(z.object({ id: id.optional(), portalId: id, username: s(120), password: s(200), hasPassword: z.boolean().optional(), extra: s(200).optional() })).max(30).optional(),
     serviceIds: z.array(id).max(100).optional(),
   })
   .partial();
@@ -158,7 +158,7 @@ export const commandSchemas: Record<CommandName, z.ZodTypeAny> = {
   toggleReminder: z.tuple([id]),
   deleteReminder: z.tuple([id]),
   trackPortalOpen: z.tuple([id]),
-  savePortal: z.tuple([z.object({ name: s(80), short: s(6), url: s(500), description: s(200) })]),
+  savePortal: z.tuple([z.object({ name: s(80), short: s(6), url: s(500), loginUrl: s(500).optional(), description: s(200) })]),
   updateNotice: z.tuple([id, z.object({ status: z.enum(['new', 'in_progress', 'replied', 'closed']), assigneeId: id.optional() }).partial()]),
   addNotice: z.tuple([
     z.object({

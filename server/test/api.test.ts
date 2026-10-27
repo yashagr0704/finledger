@@ -167,6 +167,100 @@ describe('team lifecycle', () => {
   });
 });
 
+describe('portals and portal logins', () => {
+  const loginsOf = async (who: string, clientId: string) => (await h.boot(who)).db.clients.find((c: any) => c.id === clientId).portalLogins as any[];
+  const launch = (who: string, clientId: string, ref: string, body: unknown = { portalId: 'pt_gst' }, opts?: { csrf?: boolean }) =>
+    h.call(who, 'POST', `/api/clients/${clientId}/logins/${ref}/launch`, body, opts);
+
+  it('lets users who manage masters add portals, and rejects duplicates and bad addresses', async () => {
+    const sez = { name: 'SEZ Online', short: 'SEZ', url: 'https://www.sezonline.gov.in/', loginUrl: 'https://www.sezonline.gov.in/login', description: 'SEZ returns' };
+    expect((await h.cmd('admin', 'savePortal', [sez])).status).toBe(200);
+    const portal = (await h.boot('admin')).db.portals.find((p: any) => p.name === 'SEZ Online');
+    expect(portal).toMatchObject({ url: sez.url, loginUrl: sez.loginUrl, clicks: 0 });
+    // Everyone sees it, so it is available in every client's login dropdown.
+    expect((await h.boot('priya')).db.portals.some((p: any) => p.id === portal.id)).toBe(true);
+
+    expect((await h.cmd('admin', 'savePortal', [{ ...sez, name: 'sez online', url: 'https://other.example/' }])).status).toBe(400);
+    expect((await h.cmd('admin', 'savePortal', [{ ...sez, name: 'SEZ again', url: 'https://sezonline.gov.in', loginUrl: undefined }])).status).toBe(400);
+    expect((await h.cmd('admin', 'savePortal', [{ ...sez, name: 'Script', url: 'javascript:alert(1)', loginUrl: undefined }])).status).toBe(400);
+    expect((await h.cmd('admin', 'savePortal', [{ ...sez, name: 'Bad login', url: 'https://bad-login.example/', loginUrl: 'not a url' }])).status).toBe(400);
+    expect((await h.cmd('priya', 'savePortal', [{ ...sez, name: 'Employee portal', url: 'https://employee.example/', loginUrl: undefined }])).status).toBe(403);
+  });
+
+  it('keeps each client’s credentials separate and preserves saved passwords across edits', async () => {
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { portalLogins: [{ portalId: 'pt_gst', username: 'meera_gst', password: 'MeeraGst#1', extra: 'OTP to 98xxxx1234' }] }])).status).toBe(200);
+    const [meera] = await loginsOf('admin', 'c_meera');
+    expect(meera).toMatchObject({ portalId: 'pt_gst', username: 'meera_gst', password: '', hasPassword: true, extra: 'OTP to 98xxxx1234' });
+    expect(meera.id).toMatch(/^pl_/);
+
+    // Same portal, different client: separate credential.
+    const sunriseGst = (await loginsOf('admin', 'c_sunrise')).findIndex((l: any) => l.portalId === 'pt_gst');
+    expect((await h.call('admin', 'GET', `/api/clients/c_sunrise/logins/${sunriseGst}`)).json.password).toBe('Demo@2026');
+    expect((await h.call('admin', 'GET', `/api/clients/c_meera/logins/${meera.id}`)).json.password).toBe('MeeraGst#1');
+
+    // Renaming the login ID with a blank password keeps the saved password.
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { portalLogins: [{ ...meera, username: 'meera_gst_new', password: '' }] }])).status).toBe(200);
+    const [renamed] = await loginsOf('admin', 'c_meera');
+    expect(renamed).toMatchObject({ id: meera.id, username: 'meera_gst_new', hasPassword: true });
+    expect((await h.call('admin', 'GET', `/api/clients/c_meera/logins/${meera.id}`)).json.password).toBe('MeeraGst#1');
+
+    // A saved password never moves to a different portal.
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { portalLogins: [{ ...renamed, portalId: 'pt_it', password: '' }] }])).status).toBe(200);
+    expect((await loginsOf('admin', 'c_meera'))[0]).toMatchObject({ portalId: 'pt_it', hasPassword: false });
+
+    // Unknown portals and duplicate rows are refused.
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { portalLogins: [{ portalId: 'pt_nope', username: 'x', password: 'y' }] }])).status).toBe(400);
+    const dup = { portalId: 'pt_gst', username: 'twice', password: 'p' };
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { portalLogins: [dup, { ...dup, username: 'TWICE ' }] }])).status).toBe(400);
+
+    const { rows } = await h.db.query<{ data: any }>("SELECT data FROM records WHERE collection = 'clients' AND id = 'c_sunrise'");
+    expect(rows[0].data.portalLogins.every((l: any) => l.password.startsWith('enc:v1:'))).toBe(true);
+  });
+
+  it('launch returns only the selected client’s login for the selected portal', async () => {
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { status: 'active', portalLogins: [{ portalId: 'pt_gst', username: 'meera_gst', password: 'MeeraGst#2' }] }])).status).toBe(200);
+    const [login] = await loginsOf('admin', 'c_meera');
+
+    const ok = await launch('admin', 'c_meera', login.id);
+    expect(ok.status).toBe(200);
+    expect(ok.json).toEqual({ clientId: 'c_meera', portalId: 'pt_gst', username: 'meera_gst', password: 'MeeraGst#2' });
+    const res = await h.fastify.inject({ method: 'POST', url: `/api/clients/c_meera/logins/${login.id}/launch`, headers: { cookie: h.jars.get('admin')!, 'x-ledgerflow': '1', 'content-type': 'application/json' }, payload: '{"portalId":"pt_gst"}' });
+    expect(res.headers['cache-control']).toContain('no-store');
+    const { rows } = await h.db.query<{ detail: any }>("SELECT detail FROM audit_log WHERE action = 'portal_login_launched'");
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(rows.map((r) => r.detail))).not.toContain('MeeraGst');
+
+    // Another client's id, a portal mismatch, or no portal at all: nothing is returned.
+    expect((await launch('admin', 'c_sunrise', login.id)).status).toBe(404);
+    expect((await launch('admin', 'c_meera', login.id, { portalId: 'pt_it' })).status).toBe(409);
+    expect((await launch('admin', 'c_meera', login.id, {})).status).toBe(400);
+    expect((await launch('admin', 'c_meera', 'pl_missing')).status).toBe(404);
+    expect((await launch('admin', 'c_meera', login.id, { portalId: 'pt_gst' }, { csrf: false })).status).toBe(403);
+    expect((await h.call(null, 'POST', `/api/clients/c_meera/logins/${login.id}/launch`, { portalId: 'pt_gst' })).status).toBe(401);
+  });
+
+  it('refuses launches the user is not authorised for or that cannot work', async () => {
+    const admin = await h.boot('admin');
+    const priya = await h.boot('priya');
+    const hidden = admin.db.clients.find((c: any) => c.portalLogins?.length && !priya.db.clients.some((p: any) => p.id === c.id));
+    expect(hidden).toBeTruthy();
+    expect((await launch('priya', hidden.id, '0', { portalId: hidden.portalLogins[0].portalId })).status).toBe(404);
+
+    // No saved password.
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { portalLogins: [{ portalId: 'pt_gst', username: 'nopass', password: '' }] }])).status).toBe(200);
+    const [nopass] = await loginsOf('admin', 'c_meera');
+    expect((await launch('admin', 'c_meera', nopass.id)).status).toBe(409);
+
+    // Client has left the firm.
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { status: 'inactive', portalLogins: [{ ...nopass, password: 'Exit#1' }] }])).status).toBe(200);
+    const r = await launch('admin', 'c_meera', nopass.id);
+    expect(r.status).toBe(403);
+    expect(r.json.password).toBeUndefined();
+    expect((await h.cmd('admin', 'updateClient', ['c_meera', { status: 'active' }])).status).toBe(200);
+    expect((await launch('admin', 'c_meera', nopass.id)).json.password).toBe('Exit#1');
+  });
+});
+
 describe('multi-firm isolation', () => {
   it('keeps firms completely separate', async () => {
     const reg = await h.call('other', 'POST', '/api/auth/register', { firmName: 'Other & Co', name: 'Olga', email: 'olga@other.example', password: 'otherpass1' });
@@ -178,6 +272,7 @@ describe('multi-firm isolation', () => {
     expect(b.db.categories.length).toBeGreaterThan(0);
     expect((await h.cmd('other', 'addComment', ['LF-1133', 'hello'])).status).toBe(404);
     expect((await h.call('other', 'GET', '/api/clients/c_sunrise/logins/0')).status).toBe(404);
+    expect((await h.call('other', 'POST', '/api/clients/c_sunrise/logins/0/launch', { portalId: 'pt_gst' })).status).toBe(404);
     expect((await h.cmd('other', 'fetchNotices', [])).status).toBe(400);
     expect((await h.call('dup', 'POST', '/api/auth/register', { firmName: 'Dup', name: 'X', email: 'olga@other.example', password: 'otherpass1' })).status).toBe(409);
   });

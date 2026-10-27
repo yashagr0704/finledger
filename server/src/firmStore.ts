@@ -185,7 +185,7 @@ export class FirmStore {
 
   private encryptClient(c: Client): Client {
     if (!c.portalLogins?.length) return c;
-    return { ...c, portalLogins: c.portalLogins.map((l) => ({ portalId: l.portalId, username: l.username, password: this.cipher.encrypt(l.password) })) };
+    return { ...c, portalLogins: c.portalLogins.map((l) => ({ id: l.id, portalId: l.portalId, username: l.username, password: this.cipher.encrypt(l.password), extra: l.extra })) };
   }
 
   private decryptClient(c: Client): Client {

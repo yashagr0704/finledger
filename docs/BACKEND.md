@@ -68,7 +68,11 @@ Every change runs in one transaction. It takes `SELECT … FOR UPDATE` on the fi
 - **CSRF:** every non-GET `/api` call must send the `x-ledgerflow: 1` header. Browsers cannot add it cross-site without CORS.
 - **Login:** rate-limited to 10 attempts per 15 minutes per IP. Unknown emails take the same time as wrong passwords.
 - **Deactivation:** deactivating a member revokes their sessions immediately. Changing your password signs out your other devices.
-- **Portal passwords:** encrypted at rest with AES-256-GCM using a key derived from `APP_SECRET`. They are never in bulk responses. Revealing one is a separate call that is audited.
+- **Portal passwords:** encrypted at rest with AES-256-GCM using a key derived from `APP_SECRET`. They are never in bulk responses and are never sent back into the edit form (a blank password means "keep the saved one"). Each login has a stable id, so a saved password follows its login through edits but never moves to another portal. Two audited, `no-store` endpoints hand out one credential at a time:
+  - `GET /api/clients/:id/logins/:loginId?portalId=…` reveals a password (Portal Login page).
+  - `POST /api/clients/:id/logins/:loginId/launch` with `{ portalId }` returns the login ID and password for the **Login** button. It refuses a portal mismatch (409), a client the user can't see (404), a client who has left (403), and a login with no password (409). It is rate-limited to 30 a minute.
+
+  In the browser-only demo, passwords are kept in memory and never written to `localStorage`.
 - **Firm isolation:** every query is keyed by the session's firm. A test checks that a second firm sees nothing of the first.
 - **Headers:** CSP, `X-Frame-Options: DENY`, `nosniff` and a strict referrer policy.
 

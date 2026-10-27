@@ -225,15 +225,42 @@ export async function buildApp(config: Config, db: Db) {
   });
 
   // ------------------------------------------------- secrets & integrations
-  f.get('/api/clients/:id/logins/:index', { preHandler: requireAuth }, async (req) => {
-    const { id, index } = req.params as { id: string; index: string };
+  /**
+   * One saved login of one client. `ref` is the login id (or, for older records, its position);
+   * when the caller says which portal it expects, a mismatch is refused rather than guessed.
+   */
+  const clientLogin = async (req: FastifyRequest, ref: string, expectedPortalId?: string) => {
+    const { id } = req.params as { id: string };
     const { data, me } = await context(req);
     const c = data.clients.find((x) => x.id === id);
     if (!c || !canViewClient(data, me, c)) throw new HttpError(404, 'Client not found.');
-    const login = c.portalLogins?.[Number(index)];
+    const logins = c.portalLogins ?? [];
+    const login = /^\d+$/.test(ref) ? logins[Number(ref)] : logins.find((l) => l.id === ref);
     if (!login) throw new HttpError(404, 'Login not found.');
-    await app.audit(req.auth!.firmId, me.id, 'portal_password_viewed', { clientId: c.id, portalId: login.portalId }, req.ip);
+    if (expectedPortalId && login.portalId !== expectedPortalId) throw new HttpError(409, 'This login belongs to a different portal. Refresh and try again.');
+    return { data, me, client: c, login };
+  };
+
+  f.get('/api/clients/:id/logins/:ref', { preHandler: requireAuth }, async (req, reply) => {
+    const { ref } = req.params as { ref: string };
+    const { me, client, login } = await clientLogin(req, ref, (req.query as { portalId?: string }).portalId);
+    await app.audit(req.auth!.firmId, me.id, 'portal_password_viewed', { clientId: client.id, portalId: login.portalId }, req.ip);
+    reply.header('cache-control', 'private, no-store');
     return { password: login.password };
+  });
+
+  // Hands one client's credentials for one portal to the browser that is about to sign in.
+  f.post('/api/clients/:id/logins/:ref/launch', { preHandler: requireAuth, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const { ref } = req.params as { ref: string };
+    const portalId = String((req.body as { portalId?: unknown } | undefined)?.portalId ?? '');
+    if (!portalId) throw new HttpError(400, 'Say which portal to sign in to.');
+    const { data, me, client, login } = await clientLogin(req, ref, portalId);
+    if (client.exitDate) throw new HttpError(403, 'This client has left the firm. Re-activate them to use their portal logins.');
+    if (!data.portals.some((p) => p.id === portalId)) throw new HttpError(404, 'Portal not found.');
+    if (!login.password) throw new HttpError(409, 'No password is saved for this login. Add one under Edit client → Login Details.');
+    await app.audit(req.auth!.firmId, me.id, 'portal_login_launched', { clientId: client.id, portalId, loginId: login.id }, req.ip);
+    reply.header('cache-control', 'private, no-store');
+    return { clientId: client.id, portalId, username: login.username, password: login.password, extra: login.extra };
   });
 
   f.get('/api/gstin/:gstin', { preHandler: requireAuth }, async (req) => {
