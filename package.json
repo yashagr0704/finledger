@@ -17,6 +17,7 @@
     "db:migrate": "tsx --tsconfig server/tsconfig.json server/src/cli.ts migrate",
     "db:seed": "tsx --tsconfig server/tsconfig.json server/src/cli.ts seed-demo",
     "db:create-firm": "tsx --tsconfig server/tsconfig.json server/src/cli.ts create-firm",
+    "db:clear-whatsapp": "tsx --tsconfig server/tsconfig.json server/src/cli.ts clear-whatsapp",
     "typecheck:server": "tsc -p server/tsconfig.json",
     "test:server": "vitest run --config server/vitest.config.ts"
   },

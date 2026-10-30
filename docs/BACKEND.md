@@ -145,6 +145,12 @@ docker run -p 8787:8787 -v ledgerflow-data:/data \
 
 Put it behind HTTPS (a load balancer or Caddy/nginx). Use a managed Postgres with daily backups.
 
+### AWS RDS / Aurora PostgreSQL
+
+Set `DATABASE_URL=postgresql://USER:PASSWORD@<instance>.<id>.<region>.rds.amazonaws.com:5432/<db>`. Percent-encode special characters in the password (`@` → `%40`, `#` → `%23`, `/` → `%2F`). For `*.rds.amazonaws.com` hosts the server uses SSL automatically. It verifies the certificate and hostname against Amazon's RDS root CA, which ships in `server/certs/rds-global-bundle.pem` and is copied into the Docker image, so you don't need `sslmode` or `rejectUnauthorized=false`. If you connect through an RDS Proxy, a custom DNS name or an IP, set `DATABASE_CA_FILE=server/certs/rds-global-bundle.pem` to keep verification on.
+
+The server creates its tables on first start. The RDS security group must allow inbound TCP 5432 from wherever the server runs. To run `create-firm` from your own machine, temporarily allow your IP too.
+
 ### GitHub Pages stays the demo
 
 `.github/workflows/pages.yml` still publishes the localStorage demo. It cannot host the backend, because Pages only serves static files.
@@ -155,6 +161,8 @@ Put it behind HTTPS (a load balancer or Caddy/nginx). Use a managed Postgres wit
 | --- | --- | --- |
 | `NODE_ENV` | — | `production` enables secure cookies, requires `APP_SECRET` and turns off public sign-up. |
 | `DATABASE_URL` | — | PostgreSQL connection string. If unset, embedded PGlite is used (development only). |
+| `DATABASE_CA_FILE` | — | PEM file of CAs to verify the database's certificate. Automatic for `*.rds.amazonaws.com`. |
+| `PG_POOL_MAX` | `10` | Maximum database connections per server process. |
 | `APP_SECRET` | auto (dev) | 32+ random chars. **Keep it stable**: it encrypts saved portal passwords. |
 | `PUBLIC_URL` | `http://localhost:PORT` | Used in invite links. |
 | `PORT` / `HOST` | `8787` / `0.0.0.0` | |

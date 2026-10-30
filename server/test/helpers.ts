@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { buildApp } from '../src/app';
-import { loadConfig } from '../src/config';
+import { loadConfig, type Config } from '../src/config';
 import { connectPglite, connectPostgres } from '../src/db';
 import { migrate } from '../src/migrations';
 import { seedDemoFirm } from '../src/newFirm';
@@ -10,14 +10,14 @@ import { seedDemoFirm } from '../src/newFirm';
 export const PASSWORD = 'demo1234';
 
 /** A fresh in-memory database with the demo firm, plus a small HTTP client with per-user cookie jars. */
-export async function setup() {
+export async function setup(overrides: Partial<Config> = {}) {
   // TEST_DATABASE_URL runs the suite against a real PostgreSQL server (its public schema is wiped).
   const url = process.env.TEST_DATABASE_URL;
   const db = url ? await connectPostgres(url) : await connectPglite();
   if (url) await db.exec('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await migrate(db);
   const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lf-files-'));
-  const config = loadConfig({ appSecret: 'test-secret-test-secret-test-secret-123', storageDir, staticDir: undefined, jobsEnabled: false, allowSignup: true, cookieSecure: false });
+  const config = loadConfig({ appSecret: 'test-secret-test-secret-test-secret-123', storageDir, staticDir: undefined, jobsEnabled: false, allowSignup: true, cookieSecure: false, ...overrides });
   const { fastify, app } = await buildApp(config, db);
   await seedDemoFirm(app.firms, PASSWORD);
 

@@ -15,12 +15,22 @@ export interface SendResult {
  */
 export function makeWhatsApp(config: Config) {
   const wa = config.whatsapp;
+  let displayNumber: Promise<string | undefined> | undefined;
   return {
     mode: (wa ? 'meta' : 'simulated') as 'meta' | 'simulated',
+    /** The business number as Meta shows it, e.g. "+91 98200 55101". Looked up once; retried after a failure. */
+    displayNumber(): Promise<string | undefined> {
+      if (!wa) return Promise.resolve(undefined);
+      displayNumber ??= fetch(`https://graph.facebook.com/v20.0/${wa.phoneId}?fields=display_phone_number`, { headers: { authorization: `Bearer ${wa.token}` }, signal: AbortSignal.timeout(5000) })
+        .then(async (r) => (r.ok ? ((await r.json()) as { display_phone_number?: string }).display_phone_number : undefined))
+        .catch(() => undefined)
+        .then((n) => (n ? n : ((displayNumber = undefined), undefined)));
+      return displayNumber;
+    },
     async send(phone: string, body: string): Promise<SendResult> {
       if (!wa) return { ok: true };
-      const to = phone.replace(/[^\d]/g, '');
-      if (to.length < 10) return { ok: false, error: 'No valid mobile number' };
+      const to = toWhatsAppNumber(phone);
+      if (!to) return { ok: false, error: 'No valid mobile number' };
       try {
         const res = await fetch(`https://graph.facebook.com/v20.0/${wa.phoneId}/messages`, {
           method: 'POST',
@@ -37,3 +47,11 @@ export function makeWhatsApp(config: Config) {
   };
 }
 export type WhatsApp = ReturnType<typeof makeWhatsApp>;
+
+/** Digits in international format, as Meta expects. Bare 10-digit and 0-prefixed numbers are taken as Indian. */
+export function toWhatsAppNumber(phone: string) {
+  let d = phone.replace(/[^\d]/g, '');
+  if (/^0\d{10}$/.test(d)) d = d.slice(1);
+  if (/^[6-9]\d{9}$/.test(d)) d = `91${d}`;
+  return d.length >= 11 ? d : null;
+}

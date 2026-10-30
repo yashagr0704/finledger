@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { isToday, parseISO } from 'date-fns';
-import { ArrowLeft, Ban, Check, CheckCheck, Info, Megaphone, MessageCircle, PartyPopper, RefreshCw, Search, Send, Sparkles, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Ban, Check, CheckCheck, Info, Megaphone, MessageCircle, PartyPopper, RefreshCw, Search, Send, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, EmptyState, PageHeader, Tabs } from '@/components/ui/misc';
@@ -31,10 +31,12 @@ export default function WhatsAppPage() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') as Tab) || 'chats';
   const db = useDb();
-  const live = useCaps().whatsapp === 'meta';
+  const caps = useCaps();
+  const live = caps.whatsapp === 'meta';
+  const number = live ? caps.whatsappNumber : db.firm.whatsappNumber;
   return (
     <div className="animate-slide-up">
-      <PageHeader title="WhatsApp" description={`Business number ${db.firm.whatsappNumber ?? '—'} · chats, broadcasts and festival wishes`} />
+      <PageHeader title="WhatsApp" description={`Business number ${number ?? '—'} · chats, broadcasts and festival wishes`} />
       <div className="mb-3 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-900">
         <Info className="mt-px size-3.5 shrink-0" />
         <span>
@@ -87,14 +89,17 @@ function Chats({ initialClient }: { initialClient?: string }) {
         .sort((a, b) => (b.last?.at ?? '').localeCompare(a.last?.at ?? '')),
     [clients, db.chats],
   );
-  const [active, setActive] = useState(initialClient ?? threads.find((t) => t.last)?.client.id ?? clients[0]?.id);
+  const [active, setActive] = useState(initialClient ?? threads.find((t) => t.last)?.client.id);
   const [draft, setDraft] = useState('');
   // On phones only one pane is shown at a time.
   const [mobilePane, setMobilePane] = useState<'list' | 'thread'>(initialClient ? 'thread' : 'list');
   const endRef = useRef<HTMLDivElement>(null);
   const client = db.clients.find((c) => c.id === active);
   const messages = db.chats.filter((m) => m.clientId === active);
-  useEffect(() => endRef.current?.scrollIntoView({ block: 'end' }), [messages.length, active]);
+  // Braces matter: newer browsers return a Promise from scrollIntoView, which React would treat as a cleanup.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages.length, active]);
   const send = () => {
     if (active && store.sendChat(active, draft)) setDraft('');
   };
@@ -109,8 +114,10 @@ function Chats({ initialClient }: { initialClient?: string }) {
           </div>
         </div>
         <ul className="flex-1 overflow-y-auto">
+          {!q && !threads.some((t) => t.last) && <li className="px-4 py-6 text-center text-xs text-ink-500">No conversations yet. Search for a client to start one — incoming messages appear here automatically.</li>}
           {threads
-            .filter((t) => !q || t.client.name.toLowerCase().includes(q.toLowerCase()))
+            // Conversations only; searching finds any client so a new chat can be started.
+            .filter((t) => (q ? t.client.name.toLowerCase().includes(q.toLowerCase()) : t.last || t.client.id === active))
             .map(({ client: c, last, unread }) => (
               <li key={c.id}>
                 <button onClick={() => (setActive(c.id), setMobilePane('thread'))} className={cn('flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-slate-50', active === c.id && 'bg-emerald-50/70 hover:bg-emerald-50')}>
@@ -157,8 +164,16 @@ function Chats({ initialClient }: { initialClient?: string }) {
                   <p className="whitespace-pre-wrap text-ink-900">{m.body}</p>
                   <p className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-ink-500">
                     {formatDate(m.at, isToday(parseISO(m.at)) ? 'h:mm a' : 'd MMM, h:mm a')}
-                    {m.direction === 'out' && (m.status === 'sent' ? <Check className="size-3" /> : <CheckCheck className={cn('size-3', m.status === 'read' && 'text-sky-500')} />)}
+                    {m.direction === 'out' &&
+                      (m.status === 'failed' ? (
+                        <AlertCircle className="size-3 text-red-600" aria-label="Not delivered" />
+                      ) : m.status === 'sent' ? (
+                        <Check className="size-3" />
+                      ) : (
+                        <CheckCheck className={cn('size-3', m.status === 'read' && 'text-sky-500')} />
+                      ))}
                   </p>
+                  {m.direction === 'out' && m.status === 'failed' && <p className="mt-0.5 text-right text-[10px] text-red-700">Not delivered{m.error ? ` — ${m.error}` : ''}</p>}
                 </div>
               </div>
             ))}
@@ -311,7 +326,7 @@ function BroadcastComposer() {
               onClick={() =>
                 confirm({
                   title: `Send to ${selected.size} clients?`,
-                  description: 'Each client receives this message individually on WhatsApp. (Demo — nothing is actually sent.)',
+                  description: `Each client receives this message individually on WhatsApp.${simNote() ? ' (Simulated — nothing is actually sent.)' : ''}`,
                   confirmLabel: 'Send broadcast',
                   onConfirm: () => {
                     const n = store.sendBroadcast({ title, body, kind: 'compliance', clientIds: [...selected] });
@@ -430,7 +445,7 @@ function FestivalWishes() {
               onClick={() =>
                 confirm({
                   title: `Send ${festival} wishes to ${audience.length} clients?`,
-                  description: 'One click sends the message to every active client’s WhatsApp number. (Demo — nothing is actually sent.)',
+                  description: `One click sends the message to every active client’s WhatsApp number.${simNote() ? ' (Simulated — nothing is actually sent.)' : ''}`,
                   confirmLabel: 'Send to all',
                   onConfirm: () => {
                     const n = store.sendBroadcast({ title: `${festival} wishes`, body: text, kind: 'festival', clientIds: audience.map((c) => c.id) });

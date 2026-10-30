@@ -38,6 +38,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export interface Capabilities {
   whatsapp: 'simulated' | 'meta';
+  /** The connected business number, when WhatsApp is live. */
+  whatsappNumber?: string;
   email: boolean;
   gstLookup: 'demo' | 'provider';
   noticeFetch: 'demo' | 'manual';

@@ -4,3 +4,5 @@ dist-server
 .data
 .git
 *.log
+# Local secrets (e.g. .env.server.local) must never be baked into an image.
+*.local

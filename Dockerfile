@@ -20,6 +20,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
+# Amazon RDS root certificates, for verified SSL to RDS/Aurora PostgreSQL.
+COPY --from=build /app/server/certs ./server/certs
 # Uploaded files (and the embedded database when DATABASE_URL is unset) live here.
 RUN mkdir -p /data && chown node:node /data
 VOLUME /data

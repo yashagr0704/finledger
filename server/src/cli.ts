@@ -10,6 +10,7 @@ import { hashPassword, newFirmDatabase, seedDemoFirm, validatePassword } from '.
  *   migrate                                   apply database migrations
  *   seed-demo [--password <pw>] [--reset]     load the demo firm
  *   create-firm --name <firm> --admin-name <name> --email <email> --password <pw>
+ *   clear-whatsapp [--firm <id>]              delete a firm's WhatsApp chats and broadcasts (e.g. the demo's sample chats)
  */
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name: string) => {
@@ -45,8 +46,17 @@ try {
     const { db: data, firmId, adminId } = newFirmDatabase(name, { name: adminName, email });
     await firms.create(data, firmId, { [adminId]: await hashPassword(password!) });
     console.log(`Firm “${name}” created (${firmId}). Admin: ${email}`);
+  } else if (cmd === 'clear-whatsapp') {
+    const { rows } = await db.query<{ id: string }>('SELECT id FROM firms ORDER BY created_at');
+    const firmId = flag('firm') ?? (rows.length === 1 ? rows[0].id : undefined);
+    if (!firmId || !rows.some((r) => r.id === firmId)) throw new Error(`Say which firm with --firm <id>. Firms: ${rows.map((r) => r.id).join(', ') || 'none'}`);
+    const { result } = await firms.mutate(firmId, (current) => ({
+      db: { ...current, chats: [], broadcasts: [] },
+      result: { chats: current.chats.length, broadcasts: current.broadcasts.length },
+    }));
+    console.log(`Removed ${result.chats} WhatsApp messages and ${result.broadcasts} broadcasts from ${firmId}.`);
   } else {
-    console.log('Commands: migrate | seed-demo [--password pw] [--reset] | create-firm --name --admin-name --email --password');
+    console.log('Commands: migrate | seed-demo [--password pw] [--reset] | create-firm --name --admin-name --email --password | clear-whatsapp [--firm id]');
     process.exitCode = 1;
   }
 } finally {

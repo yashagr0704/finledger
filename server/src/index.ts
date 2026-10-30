@@ -3,6 +3,16 @@ import { loadConfig } from './config';
 import { connect } from './connect';
 import { startJobs } from './jobs';
 
+// Local secrets for development (WhatsApp token etc.). Git-ignored; production uses real environment
+// variables. Never overrides a variable that is already set.
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    process.loadEnvFile('.env.server.local');
+  } catch {
+    /* optional */
+  }
+}
+
 const config = loadConfig();
 const db = await connect(config);
 const { fastify, app } = await buildApp(config, db);

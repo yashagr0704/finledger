@@ -425,6 +425,8 @@ export interface ChatMessage {
   authorId?: string;
   /** Message id from the WhatsApp provider. */
   externalId?: string;
+  /** Why the provider refused the message, when status is "failed". */
+  error?: string;
 }
 
 export interface Broadcast {
