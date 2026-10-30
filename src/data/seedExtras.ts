@@ -493,5 +493,7 @@ export function createExtras(ctx: { now: Date; rand: () => number; users: User[]
     chats,
     broadcasts,
     drive,
+    waNumbers: [],
+    waThreads: [],
   };
 }

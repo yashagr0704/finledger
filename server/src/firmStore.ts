@@ -1,5 +1,5 @@
 import { DB_VERSION } from '@/data/seed';
-import type { Client, Database, Firm, User } from '@/types';
+import type { Client, Database, Firm, User, WhatsAppNumber } from '@/types';
 import type { Cipher } from './crypto';
 import type { Db, Sql } from './db';
 import type { Events } from './events';
@@ -8,6 +8,7 @@ import type { Events } from './events';
 export const COLLECTIONS = [
   'clients', 'categories', 'tasks', 'comments', 'activities', 'notifications', 'documents', 'reviews', 'templates', 'services', 'referrers',
   'notes', 'reminders', 'portals', 'notices', 'invoices', 'payments', 'dscs', 'docMovements', 'chats', 'broadcasts', 'drive',
+  'waNumbers', 'waThreads',
 ] as const;
 type Collection = (typeof COLLECTIONS)[number];
 
@@ -122,6 +123,7 @@ export class FirmStore {
     for (const r of recs.rows) (db[r.collection] as unknown[]).push(r.data);
     for (const c of PREPEND) (db[c] as unknown[]).reverse();
     db.clients = db.clients.map((c) => this.decryptClient(c));
+    db.waNumbers = db.waNumbers.map((n) => ({ ...n, token: safeDecrypt(this.cipher, n.token), appSecret: safeDecrypt(this.cipher, n.appSecret) }));
     return { version: Number(firm.rows[0].version), db, snapshot: this.snapshotOf(db) };
   }
 
@@ -168,7 +170,13 @@ export class FirmStore {
       // New rows get increasing `seq`; for newest-first collections insert them oldest-first.
       if (PREPEND.has(c)) upserts = [...upserts].reverse();
       if (upserts.length) {
-        const payload = upserts.map((r) => (c === 'clients' ? this.encryptClient(r as unknown as Client) : r));
+        const payload = upserts.map((r) =>
+          c === 'clients'
+            ? this.encryptClient(r as unknown as Client)
+            : c === 'waNumbers'
+              ? { ...r, token: this.cipher.encrypt((r as unknown as WhatsAppNumber).token), appSecret: this.cipher.encrypt((r as unknown as WhatsAppNumber).appSecret) }
+              : r,
+        );
         await q.query(
           `INSERT INTO records (firm_id, collection, id, data, ts)
            SELECT $1, $2, e->>'id', e, NULLIF(e->>'createdAt', '')::timestamptz

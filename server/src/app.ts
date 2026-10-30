@@ -10,7 +10,7 @@ import { classifyError, execute } from '@/domain/execute';
 import { parseCommandArgs, ArgsError } from '@/domain/schemas';
 import { canAccessFile, scopeDatabase } from '@/domain/scope';
 import { checkGstin, lookupGstin } from '@/lib/gstin';
-import { canManageTeam, canViewClient, canWorkOnTask } from '@/lib/permissions';
+import { canManageFirm, canManageTeam, canViewClient, canWorkOnTask } from '@/lib/permissions';
 import type { ChatMessage, Database, User } from '@/types';
 import { authenticate, createInvite, registerAuthRoutes, revokeSessions } from './auth';
 import type { Config } from './config';
@@ -143,8 +143,10 @@ export async function buildApp(config: Config, db: Db) {
       meId: me.id,
       version,
       caps: {
-        whatsapp: app.whatsapp.mode,
+        // Live when the server has a default number or the firm has connected one of its own.
+        whatsapp: app.whatsapp.mode === 'meta' || data.waNumbers.some((n) => n.status === 'connected') ? 'meta' : 'simulated',
         whatsappNumber: await app.whatsapp.displayNumber(),
+        whatsappDefault: app.whatsapp.mode === 'meta',
         email: app.mailer.enabled,
         gstLookup: config.gstApi ? 'provider' : 'demo',
         noticeFetch: data.firm.isDemo ? 'demo' : 'manual',
@@ -326,24 +328,136 @@ export async function buildApp(config: Config, db: Db) {
       return reply.code(403).send({ message: 'Verification failed.' });
     });
     scope.post('/api/webhooks/whatsapp', async (req, reply) => {
-      const wa = config.whatsapp;
-      if (!wa) return reply.code(404).send({ message: 'WhatsApp is not configured.' });
-      // The endpoint is public, so only Meta-signed calls are accepted.
-      if (!wa.appSecret) {
-        req.log.warn('WhatsApp webhook call refused: set WHATSAPP_APP_SECRET to accept Meta webhooks.');
+      const raw = (req as FastifyRequest & { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0);
+      const sig = String(req.headers['x-hub-signature-256'] ?? '');
+      const changes = ((req.body as WaWebhook)?.entry ?? []).flatMap((e) => e.changes ?? []).map((c) => c.value ?? {});
+      const phoneIds = [...new Set(changes.map((v) => v.metadata?.phone_number_id).filter((x): x is string => !!x))];
+      const { rows: routes } = phoneIds.length
+        ? await db.query<{ phone_number_id: string; firm_id: string; number_id: string }>('SELECT phone_number_id, firm_id, number_id FROM whatsapp_numbers WHERE phone_number_id = ANY($1)', [phoneIds])
+        : { rows: [] };
+
+      // The endpoint is public, so only Meta-signed calls are accepted. A call is signed with the
+      // secret of the Meta app it comes from: ours (WHATSAPP_APP_SECRET) or the app a firm used to
+      // connect its own number. A firm's secret only vouches for that firm's numbers.
+      const signers: { secret: string; phoneIds?: Set<string> }[] = [];
+      if (config.whatsapp?.appSecret) signers.push({ secret: config.whatsapp.appSecret });
+      for (const r of routes) {
+        const n = (await app.firms.get(r.firm_id)).db.waNumbers.find((x) => x.id === r.number_id && x.status === 'connected');
+        if (n?.appSecret) signers.push({ secret: n.appSecret, phoneIds: new Set([r.phone_number_id]) });
+      }
+      if (!signers.length) {
+        req.log.warn('WhatsApp webhook call refused: no app secret is configured for it.');
         return reply.code(503).send({ message: 'WhatsApp webhook is not configured.' });
       }
-      const sig = String(req.headers['x-hub-signature-256'] ?? '');
-      const expected = 'sha256=' + crypto.createHmac('sha256', wa.appSecret).update((req as FastifyRequest & { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0)).digest('hex');
-      if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return reply.code(401).send({ message: 'Bad signature.' });
-      const firmId = wa.firmId ?? (await onlyFirmId(app));
-      if (!firmId) {
-        req.log.warn('WhatsApp webhook call ignored: several firms exist, set WHATSAPP_FIRM_ID.');
-        return { ok: true };
+      const signer = signers.find((s) => validSignature(s.secret, raw, sig));
+      if (!signer) return reply.code(401).send({ message: 'Bad signature.' });
+
+      // Route each change to the firm and number it belongs to.
+      const byFirm = new Map<string, WaDelivery[]>();
+      const legacyFirm = !signer.phoneIds && config.whatsapp ? (config.whatsapp.firmId ?? (await onlyFirmId(app))) : undefined;
+      for (const value of changes) {
+        const pid = value.metadata?.phone_number_id;
+        const route = routes.find((r) => r.phone_number_id === pid);
+        let dest: { firmId: string; numberId?: string } | undefined;
+        if (route && (!signer.phoneIds || signer.phoneIds.has(route.phone_number_id))) dest = { firmId: route.firm_id, numberId: route.number_id };
+        else if (!route && legacyFirm && (!pid || pid === config.whatsapp?.phoneId)) dest = { firmId: legacyFirm };
+        if (!dest) continue;
+        byFirm.set(dest.firmId, [...(byFirm.get(dest.firmId) ?? []), { value, numberId: dest.numberId }]);
       }
-      await applyWhatsAppWebhook(app, firmId, req.body);
+      for (const [firmId, items] of byFirm) await applyWhatsAppWebhook(app, firmId, items);
       return { ok: true };
     });
+  });
+
+  // ------------------------------------------------- WhatsApp numbers (admin)
+  /** What a firm admin pastes into their own Meta app so its webhooks reach us. */
+  f.get('/api/whatsapp/setup', { preHandler: requireAuth }, async (req) => {
+    const { me } = await context(req);
+    if (!canManageFirm(me)) throw new HttpError(403, 'Only firm admins can connect WhatsApp numbers.');
+    return { callbackUrl: `${config.publicUrl}/api/webhooks/whatsapp`, verifyToken: config.whatsapp?.verifyToken ?? null };
+  });
+
+  f.post('/api/whatsapp/numbers', { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {
+    const { data, me } = await context(req);
+    if (!canManageFirm(me)) throw new HttpError(403, 'Only firm admins can connect WhatsApp numbers.');
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string).trim() : '');
+    const phoneNumberId = str('phoneNumberId');
+    const wabaId = str('wabaId');
+    const token = str('token');
+    const appSecret = str('appSecret');
+    const label = str('label').slice(0, 60);
+    if (!/^\d{5,30}$/.test(phoneNumberId)) throw new HttpError(400, 'Enter the Phone Number ID (digits only) from Meta → WhatsApp → API Setup.');
+    if (!/^\d{5,30}$/.test(wabaId)) throw new HttpError(400, 'Enter the WhatsApp Business Account ID (digits only).');
+    if (token.length < 20 || token.length > 2000 || /\s/.test(token)) throw new HttpError(400, 'Paste the full access token.');
+    if (!/^[0-9a-f]{32}$/i.test(appSecret)) throw new HttpError(400, 'Paste the App secret (32 characters) from your Meta app’s Settings → Basic.');
+    const prev = data.waNumbers.find((n) => n.phoneNumberId === phoneNumberId);
+    if (prev?.status === 'connected') throw new HttpError(409, `${prev.label || prev.displayNumber} is already connected.`);
+
+    let info: { displayNumber: string; verifiedName: string };
+    try {
+      info = await app.whatsapp.lookupNumber(phoneNumberId, token);
+    } catch (e) {
+      throw new HttpError(400, `Meta did not accept these details: ${(e as Error).message}`);
+    }
+    try {
+      await app.whatsapp.subscribe(wabaId, token);
+    } catch (e) {
+      throw new HttpError(400, `Couldn’t subscribe to this account’s messages: ${(e as Error).message} Check the WhatsApp Business Account ID and that the token has the whatsapp_business_management permission.`);
+    }
+
+    const firmId = req.auth!.firmId;
+    const numberId = prev?.id ?? newId('wan');
+    await app.firms.mutate(firmId, async (current, q) => {
+      // Claim the number for this firm in the same transaction; one firm per number.
+      const claimed = await q.query(
+        `INSERT INTO whatsapp_numbers (phone_number_id, firm_id, number_id) VALUES ($1, $2, $3)
+         ON CONFLICT (phone_number_id) DO UPDATE SET number_id = EXCLUDED.number_id WHERE whatsapp_numbers.firm_id = EXCLUDED.firm_id
+         RETURNING firm_id`,
+        [phoneNumberId, firmId, numberId],
+      );
+      if (!claimed.rows.length) throw new HttpError(409, 'This WhatsApp number is already connected to another LedgerFlow account.');
+      const next = structuredClone(current);
+      const record = {
+        id: numberId,
+        phoneNumberId,
+        wabaId,
+        displayNumber: info.displayNumber,
+        verifiedName: info.verifiedName,
+        label: label || info.verifiedName || info.displayNumber,
+        status: 'connected' as const,
+        token,
+        appSecret,
+        connectedAt: new Date().toISOString(),
+        connectedBy: me.id,
+      };
+      next.waNumbers = prev ? next.waNumbers.map((n) => (n.id === numberId ? record : n)) : [...next.waNumbers, record];
+      return { db: next, result: null };
+    });
+    await app.audit(firmId, me.id, 'whatsapp_number_connected', { numberId, phoneNumberId, wabaId }, req.ip);
+    return { id: numberId, displayNumber: info.displayNumber, verifiedName: info.verifiedName };
+  });
+
+  f.delete('/api/whatsapp/numbers/:id', { preHandler: requireAuth }, async (req) => {
+    const { id } = req.params as { id: string };
+    const { data, me } = await context(req);
+    if (!canManageFirm(me)) throw new HttpError(403, 'Only firm admins can remove WhatsApp numbers.');
+    const n = data.waNumbers.find((x) => x.id === id);
+    if (!n) throw new HttpError(404, 'WhatsApp number not found.');
+    if (n.status !== 'connected') return { ok: true };
+    // Stop this account's webhooks unless another of the firm's numbers still uses it.
+    if (!data.waNumbers.some((x) => x.id !== id && x.status === 'connected' && x.wabaId === n.wabaId))
+      await app.whatsapp.unsubscribe(n.wabaId, n.token).catch((e) => req.log.warn({ err: e }, 'Could not unsubscribe WhatsApp account'));
+    const firmId = req.auth!.firmId;
+    await app.firms.mutate(firmId, async (current, q) => {
+      await q.query('DELETE FROM whatsapp_numbers WHERE phone_number_id = $1 AND firm_id = $2', [n.phoneNumberId, firmId]);
+      const next = structuredClone(current);
+      // History stays; the credentials go.
+      next.waNumbers = next.waNumbers.map((x) => (x.id === id ? { ...x, status: 'disconnected' as const, token: '', appSecret: '', disconnectedAt: new Date().toISOString() } : x));
+      return { db: next, result: null };
+    });
+    await app.audit(firmId, me.id, 'whatsapp_number_disconnected', { numberId: id, phoneNumberId: n.phoneNumberId }, req.ip);
+    return { ok: true };
   });
 
   // ---------------------------------------------------- frontend (optional)
@@ -399,8 +513,15 @@ async function dispatchWhatsApp(app: App, firmId: string, db: Database, chats: C
   const results = new Map<string, { status: ChatMessage['status']; externalId?: string; error?: string }>();
   for (const c of chats) {
     const phone = db.clients.find((x) => x.id === c.clientId)?.phone ?? '';
-    const r = await app.whatsapp.send(phone, c.body);
-    results.set(c.id, r.ok ? { status: app.whatsapp.mode === 'simulated' ? 'delivered' : 'sent', externalId: r.externalId } : { status: 'failed', error: (r.error ?? 'Not delivered').slice(0, 300) });
+    // Each message goes out through the number it belongs to; unset means the server's default.
+    const n = c.numberId ? db.waNumbers.find((x) => x.id === c.numberId) : undefined;
+    if (c.numberId && n?.status !== 'connected') {
+      results.set(c.id, { status: 'failed', error: 'This WhatsApp number is disconnected.' });
+      continue;
+    }
+    const creds = n ? { phoneId: n.phoneNumberId, token: n.token } : app.whatsapp.defaultCreds;
+    const r = await app.whatsapp.send(phone, c.body, creds);
+    results.set(c.id, r.ok ? { status: creds ? 'sent' : 'delivered', externalId: r.externalId } : { status: 'failed', error: (r.error ?? 'Not delivered').slice(0, 300) });
     if (!r.ok) app.log.warn({ chatId: c.id, error: r.error }, 'WhatsApp send failed');
   }
   await app.firms
@@ -415,16 +536,24 @@ async function dispatchWhatsApp(app: App, firmId: string, db: Database, chats: C
     .catch((e) => app.log.error({ err: e }, 'Could not record WhatsApp delivery'));
 }
 
+interface WaValue {
+  metadata?: { phone_number_id?: string; display_phone_number?: string };
+  statuses?: { id: string; status: string; errors?: { code?: number; title?: string; message?: string; error_data?: { details?: string } }[] }[];
+  messages?: { from: string; id: string; timestamp?: string; text?: { body?: string }; type: string }[];
+  contacts?: { wa_id: string; profile?: { name?: string } }[];
+}
 interface WaWebhook {
-  entry?: {
-    changes?: {
-      value?: {
-        statuses?: { id: string; status: string; errors?: { code?: number; title?: string; message?: string; error_data?: { details?: string } }[] }[];
-        messages?: { from: string; id: string; timestamp?: string; text?: { body?: string }; type: string }[];
-        contacts?: { wa_id: string; profile?: { name?: string } }[];
-      };
-    }[];
-  }[];
+  entry?: { changes?: { value?: WaValue }[] }[];
+}
+/** One webhook change, already routed to a firm; `numberId` unset = the server's default number. */
+interface WaDelivery {
+  value: WaValue;
+  numberId?: string;
+}
+
+function validSignature(secret: string, raw: Buffer, sig: string) {
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');
+  return sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
 /** The firm webhooks belong to when WHATSAPP_FIRM_ID is not set: the only one, if there is exactly one. */
@@ -433,11 +562,10 @@ async function onlyFirmId(app: App) {
   return rows.length === 1 ? rows[0].id : undefined;
 }
 
-export async function applyWhatsAppWebhook(app: App, firmId: string, body: unknown) {
-  const values = ((body as WaWebhook)?.entry ?? []).flatMap((e) => e.changes ?? []).map((c) => c.value ?? {});
-  const statuses = values.flatMap((v) => v.statuses ?? []);
-  const messages = values.flatMap((v) => v.messages ?? []);
-  const names = new Map(values.flatMap((v) => v.contacts ?? []).map((c) => [c.wa_id, c.profile?.name?.trim()]));
+async function applyWhatsAppWebhook(app: App, firmId: string, items: WaDelivery[]) {
+  const statuses = items.flatMap((d) => d.value.statuses ?? []);
+  const messages = items.flatMap((d) => (d.value.messages ?? []).map((m) => ({ ...m, numberId: d.numberId })));
+  const names = new Map(items.flatMap((d) => d.value.contacts ?? []).map((c) => [c.wa_id, c.profile?.name?.trim()]));
   if (!statuses.length && !messages.length) return;
   const digits = (s: string) => s.replace(/\D/g, '').slice(-10);
   await app.firms.mutate(firmId, (current) => {
@@ -463,6 +591,7 @@ export async function applyWhatsAppWebhook(app: App, firmId: string, body: unkno
         at: (Number.isFinite(sent) && sent > 0 ? new Date(sent * 1000) : new Date()).toISOString(),
         status: 'read',
         externalId: msg.id,
+        ...(msg.numberId ? { numberId: msg.numberId } : {}),
       });
     }
     return { db: next, result: null };

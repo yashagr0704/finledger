@@ -832,24 +832,54 @@ export function markDocReturned(ctx: Ctx, id: string) {
 
 // ------------------------------------------------------- WhatsApp & drive
 
-export function sendChat(ctx: Ctx, clientId: string, body: string) {
+/** The firm number to send from; undefined means the server's default number. */
+function sendingNumber(ctx: Ctx, numberId?: string) {
+  if (!numberId) return undefined;
+  const n = found(ctx.db.waNumbers.find((x) => x.id === numberId), 'WhatsApp number');
+  if (n.status !== 'connected') fail(`${n.label || n.displayNumber} is disconnected. Reconnect it under WhatsApp → Numbers to send from it.`);
+  return n.id;
+}
+
+export function sendChat(ctx: Ctx, clientId: string, body: string, numberId?: string) {
   assert(canUseWhatsApp(ctx.me), 'You don’t have WhatsApp access.');
   const client = visibleClient(ctx, clientId);
   if (client.exitDate) fail(`${client.name} has left the firm — messaging is switched off.`);
   if (!body.trim()) return;
-  ctx.db.chats.push({ id: ctx.newId('wa'), clientId, direction: 'out', body: body.trim(), at: now(), status: 'sent', authorId: ctx.me.id });
+  const from = sendingNumber(ctx, numberId);
+  ctx.db.chats.push({ id: ctx.newId('wa'), clientId, direction: 'out', body: body.trim(), at: now(), status: 'sent', authorId: ctx.me.id, ...(from ? { numberId: from } : {}) });
   return true;
 }
 
-export function sendBroadcast(ctx: Ctx, input: { title: string; body: string; kind: Broadcast['kind']; clientIds: string[] }) {
+export function sendBroadcast(ctx: Ctx, input: { title: string; body: string; kind: Broadcast['kind']; clientIds: string[]; numberId?: string }) {
   assert(canUseWhatsApp(ctx.me), 'You don’t have WhatsApp access.');
   if (!input.body?.trim()) fail('Write a message to send.');
   const recipients = ctx.db.clients.filter((c) => input.clientIds.includes(c.id) && !c.exitDate && canViewClient(ctx.db, ctx.me, c));
   if (!recipients.length) fail('Choose at least one active client.');
+  const from = sendingNumber(ctx, input.numberId);
   const at = now();
   ctx.db.broadcasts.unshift({ id: ctx.newId('bc'), title: input.title?.trim() || 'Broadcast', body: input.body, kind: input.kind, sentAt: at, recipients: recipients.length, sentBy: ctx.me.id });
-  recipients.forEach((c) => ctx.db.chats.push({ id: ctx.newId('wa'), clientId: c.id, direction: 'out', body: input.body, at, status: 'sent', authorId: ctx.me.id }));
+  recipients.forEach((c) => ctx.db.chats.push({ id: ctx.newId('wa'), clientId: c.id, direction: 'out', body: input.body, at, status: 'sent', authorId: ctx.me.id, ...(from ? { numberId: from } : {}) }));
   return recipients.length;
+}
+
+/** Hands a conversation (one client on one number) to a team member, or back to the unassigned pool. */
+export function assignWhatsAppThread(ctx: Ctx, clientId: string, numberId: string | undefined, assigneeId: string | undefined) {
+  assert(canUseWhatsApp(ctx.me), 'You don’t have WhatsApp access.');
+  const client = visibleClient(ctx, clientId);
+  if (numberId) found(ctx.db.waNumbers.find((x) => x.id === numberId), 'WhatsApp number');
+  if (assigneeId) {
+    const u = activeUser(ctx, assigneeId, 'Team member');
+    if (!canUseWhatsApp(u)) fail(`${u.name} doesn’t have WhatsApp access.`);
+  }
+  let t = ctx.db.waThreads.find((x) => x.clientId === clientId && (x.numberId ?? '') === (numberId ?? ''));
+  if (!t) {
+    t = { id: ctx.newId('wat'), clientId, ...(numberId ? { numberId } : {}), updatedAt: now() };
+    ctx.db.waThreads.push(t);
+  }
+  t.assigneeId = assigneeId || undefined;
+  t.updatedAt = now();
+  if (assigneeId) notify(ctx, assigneeId, { type: 'assigned', title: `WhatsApp chat with ${client.name} assigned to you`, body: `${ctx.me.name} handed you this conversation`, clientId });
+  return true;
 }
 
 const cleanFolder = (f: string) =>
@@ -959,6 +989,7 @@ export const commands = {
   markDocReturned,
   sendChat,
   sendBroadcast,
+  assignWhatsAppThread,
   addDriveFiles,
   deleteDriveFile,
   saveService,

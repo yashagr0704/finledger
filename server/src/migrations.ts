@@ -84,6 +84,21 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX audit_firm_idx ON audit_log (firm_id, created_at);
     `,
   },
+  {
+    id: 2,
+    name: 'whatsapp number routing',
+    sql: `
+      -- Which firm (and which of its numbers) owns each connected Meta phone number ID, so
+      -- incoming webhooks reach the right firm. One number can be connected to one firm only.
+      CREATE TABLE whatsapp_numbers (
+        phone_number_id text PRIMARY KEY,
+        firm_id text NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+        number_id text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX whatsapp_numbers_firm_idx ON whatsapp_numbers (firm_id);
+    `,
+  },
 ];
 
 export async function migrate(db: Db) {

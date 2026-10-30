@@ -220,6 +220,7 @@ class LedgerStore {
   deleteReminder = (...a: CommandArgs<'deleteReminder'>) => this.exec('deleteReminder', ...a);
   trackPortalOpen = (...a: CommandArgs<'trackPortalOpen'>) => this.exec('trackPortalOpen', ...a);
   savePortal = (...a: CommandArgs<'savePortal'>) => this.exec('savePortal', ...a);
+  assignWhatsAppThread = (...a: CommandArgs<'assignWhatsAppThread'>) => this.exec('assignWhatsAppThread', ...a);
   updateNotice = (...a: CommandArgs<'updateNotice'>) => this.exec('updateNotice', ...a);
   addNotice = (...a: CommandArgs<'addNotice'>) => this.exec('addNotice', ...a);
   fetchNotices = () => this.exec('fetchNotices');

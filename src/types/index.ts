@@ -427,6 +427,40 @@ export interface ChatMessage {
   externalId?: string;
   /** Why the provider refused the message, when status is "failed". */
   error?: string;
+  /** The firm's WhatsApp number (WhatsAppNumber.id) this message went through. Unset = the server's default number. */
+  numberId?: string;
+}
+
+/** A WhatsApp Business number a firm has connected. */
+export interface WhatsAppNumber {
+  id: string;
+  /** Meta's Phone Number ID (not the phone number itself). */
+  phoneNumberId: string;
+  /** Meta's WhatsApp Business Account ID. */
+  wabaId: string;
+  /** As Meta shows it, e.g. "+91 98200 55101". */
+  displayNumber: string;
+  verifiedName: string;
+  /** The firm's own name for it, e.g. "Front desk". */
+  label: string;
+  status: 'connected' | 'disconnected';
+  /** Access token. Encrypted at rest; always empty in the browser. */
+  token: string;
+  /** Secret of the Meta app that owns the token; verifies its webhooks. Encrypted at rest; always empty in the browser. */
+  appSecret: string;
+  connectedAt: string;
+  connectedBy: string;
+  disconnectedAt?: string;
+}
+
+/** Per-conversation state: one client on one number. */
+export interface WhatsAppThread {
+  id: string;
+  clientId: string;
+  /** Unset = the server's default number. */
+  numberId?: string;
+  assigneeId?: string;
+  updatedAt: string;
 }
 
 export interface Broadcast {
@@ -497,4 +531,6 @@ export interface Database {
   chats: ChatMessage[];
   broadcasts: Broadcast[];
   drive: DriveFile[];
+  waNumbers: WhatsAppNumber[];
+  waThreads: WhatsAppThread[];
 }

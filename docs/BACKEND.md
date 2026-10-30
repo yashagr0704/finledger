@@ -175,7 +175,8 @@ The server creates its tables on first start. The RDS security group must allow 
 | `COOKIE_SECURE` | `true` in prod | |
 | `JOBS_ENABLED` / `JOB_INTERVAL_MIN` | `true` / `15` | The scheduler. |
 | `SMTP_URL` / `MAIL_FROM` | — | Emails invites, e.g. `smtps://user:pass@smtp.provider.com:465`. |
-| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_FIRM_ID` | — | Turns on real WhatsApp sending and the delivery-status webhook. |
+| `WHATSAPP_VERIFY_TOKEN` | — | Shared verify token for Meta's webhook handshake. **Required** for firms to connect their own numbers. Admins see it in WhatsApp → Numbers → Connect number. |
+| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_FIRM_ID` | — | Optional server-wide default number, used for chats not tied to a firm's own number. |
 | `GST_API_URL` / `GST_API_KEY` | — | GSTIN lookup through a GSP. The URL is called as `GET {url}/{gstin}` with a Bearer token, and GSTN-style fields (`lgnm`, `tradeNam`, `pradr`…) are mapped. |
 
 ## 4. What is real and what still needs a provider
@@ -190,7 +191,7 @@ The server creates its tables on first start. The RDS security group must allow 
 | Portal login vault | **Real**, encrypted, reveal is audited |
 | Notices | Entered by hand with **Add notice**. Automatic fetching needs a GSP plus client consent; the Income Tax portal has no public API. The seeded demo firm keeps the simulated "Fetch now". |
 | GSTIN lookup | Check digit and PAN/state are validated for real. Name and address need `GST_API_URL` (a GSP account), otherwise the small demo directory is used. |
-| WhatsApp | Simulated until the `WHATSAPP_*` variables are set. Then it uses the Meta Cloud API. Messages outside the 24-hour window need approved templates. |
+| WhatsApp | **Shared inbox.** Each firm's admin connects its own WhatsApp Business numbers (Cloud API) under **WhatsApp → Numbers**, giving the Phone Number ID, Business Account ID, a permanent system-user token and the app secret. These are checked live with Meta, and the token and secret are encrypted at rest and never sent to browsers. Incoming webhooks are routed by Meta phone number ID (table `whatsapp_numbers`, one firm per number) and verified with that number's app secret. Replies go out from the conversation's own number. Conversations can be assigned (All / Mine / Unassigned). Disconnecting keeps the history. Meta's API cannot download chats from before a number was connected, and messages outside the 24-hour window need approved templates. |
 | Email | Invites only, when `SMTP_URL` is set. |
 | AI festival wishes | Template-based. Plug in an LLM call in `server/src/app.ts` if you want generated text. |
 

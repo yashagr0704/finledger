@@ -31,7 +31,8 @@ export const localRepository: DataRepository = {
       const raw = localStorage.getItem(brand.storageKey);
       if (raw) {
         const parsed = JSON.parse(raw) as Database;
-        if (parsed.version === DB_VERSION) return parsed;
+        // Collections added after the demo data was saved start empty.
+        if (parsed.version === DB_VERSION) return { ...parsed, waNumbers: parsed.waNumbers ?? [], waThreads: parsed.waThreads ?? [] };
       }
     } catch {
       // Corrupt or unavailable storage — fall back to a fresh seed.

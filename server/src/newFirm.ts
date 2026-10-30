@@ -55,6 +55,8 @@ export function newFirmDatabase(firmName: string, admin: { name: string; email: 
     chats: [],
     broadcasts: [],
     drive: [],
+    waNumbers: [],
+    waThreads: [],
   };
   return { db, firmId, adminId };
 }

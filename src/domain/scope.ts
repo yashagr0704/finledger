@@ -40,6 +40,9 @@ export function scopeDatabase(db: Database, me: User): Database {
     chats: perms.whatsapp ? byClient(db.chats) : [],
     broadcasts: perms.whatsapp ? db.broadcasts : [],
     drive: byClient(db.drive),
+    // Access tokens stay on the server.
+    waNumbers: perms.whatsapp ? db.waNumbers.map((n) => ({ ...n, token: '', appSecret: '' })) : [],
+    waThreads: perms.whatsapp ? byClient(db.waThreads) : [],
   };
 }
 

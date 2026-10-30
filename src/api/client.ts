@@ -38,8 +38,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export interface Capabilities {
   whatsapp: 'simulated' | 'meta';
-  /** The connected business number, when WhatsApp is live. */
+  /** The server's default business number, when one is configured. */
   whatsappNumber?: string;
+  /** Whether the server has a default number (WHATSAPP_TOKEN), used for chats not tied to a firm number. */
+  whatsappDefault?: boolean;
   email: boolean;
   gstLookup: 'demo' | 'provider';
   noticeFetch: 'demo' | 'manual';
@@ -78,6 +80,10 @@ export const api = {
     request<{ password: string }>('GET', `/clients/${encodeURIComponent(clientId)}/logins/${encodeURIComponent(ref)}${portalId ? `?portalId=${encodeURIComponent(portalId)}` : ''}`),
   launchLogin: (clientId: string, ref: string | number, portalId: string) =>
     request<{ clientId: string; portalId: string; username: string; password: string; extra?: string }>('POST', `/clients/${encodeURIComponent(clientId)}/logins/${encodeURIComponent(ref)}/launch`, { portalId }),
+  whatsappSetup: () => request<{ callbackUrl: string; verifyToken: string | null }>('GET', '/whatsapp/setup'),
+  connectWhatsAppNumber: (input: { label: string; phoneNumberId: string; wabaId: string; token: string; appSecret: string }) =>
+    request<{ id: string; displayNumber: string; verifiedName: string }>('POST', '/whatsapp/numbers', input),
+  disconnectWhatsAppNumber: (id: string) => request<{ ok: true }>('DELETE', `/whatsapp/numbers/${encodeURIComponent(id)}`),
   gstin: (gstin: string) => request<{ record: unknown; pan: string; state: string; checksumOk: boolean; source: 'demo' | 'provider' }>('GET', `/gstin/${encodeURIComponent(gstin)}`),
   async upload(file: File, scope: { taskId?: string; clientId?: string }) {
     const q = new URLSearchParams(scope.taskId ? { taskId: scope.taskId } : { clientId: scope.clientId ?? '' });

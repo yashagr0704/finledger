@@ -208,8 +208,10 @@ export const commandSchemas: Record<CommandName, z.ZodTypeAny> = {
     }),
   ]),
   markDocReturned: z.tuple([id]),
-  sendChat: z.tuple([id, s(4096)]),
-  sendBroadcast: z.tuple([z.object({ title: s(120), body: s(4096), kind: z.enum(['festival', 'compliance', 'custom']), clientIds: z.array(id).max(5000) })]),
+  sendChat: z.tuple([id, s(4096)]).rest(id.optional()),
+  sendBroadcast: z.tuple([z.object({ title: s(120), body: s(4096), kind: z.enum(['festival', 'compliance', 'custom']), clientIds: z.array(id).max(5000), numberId: id.optional() })]),
+  // clientId, then optional numberId and assigneeId
+  assignWhatsAppThread: z.tuple([id]).rest(id.optional()),
   addDriveFiles: z.tuple([id, s(200), z.array(fileRef).min(1).max(50)]),
   deleteDriveFile: z.tuple([id]),
   saveService: z.tuple([z.object({ groupId: id, name: s(120), frequency: s(40), defaultFee: z.number().min(0).max(1e9) })]).rest(id.optional()),

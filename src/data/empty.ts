@@ -29,5 +29,7 @@ export function emptyDatabase(): Database {
     chats: [],
     broadcasts: [],
     drive: [],
+    waNumbers: [],
+    waThreads: [],
   };
 }
