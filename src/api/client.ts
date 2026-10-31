@@ -1,6 +1,6 @@
 import type { CommandName } from '@/domain/commands';
 import type { ProposedId } from '@/domain/context';
-import type { Database } from '@/types';
+import type { Database, UserStatus } from '@/types';
 
 /**
  * Backend mode is enabled at build time with VITE_BACKEND=1 (set in .env.backend). The API lives at
@@ -48,6 +48,24 @@ export interface Capabilities {
   storage: 'local' | 's3';
 }
 
+/** A firm as the platform superadmin sees it: size and admins, nothing from inside the firm. */
+export interface PlatformFirm {
+  id: string;
+  name: string;
+  createdAt: string;
+  suspendedAt: string | null;
+  members: number;
+  admins: FirmAdmin[];
+}
+export interface FirmAdmin {
+  id: string;
+  email: string;
+  name: string;
+  status: UserStatus;
+  hasPassword: boolean;
+  lastLoginAt: string | null;
+}
+
 /** What the demo build (no server) can do: everything integration-backed is simulated. */
 export const DEMO_CAPS: Capabilities = { whatsapp: 'simulated', email: false, gstLookup: 'demo', noticeFetch: 'demo', storage: 'local' };
 
@@ -69,10 +87,13 @@ export const api = {
   me: () => request<{ userId: string; firmId: string }>('GET', '/auth/me'),
   login: (email: string, password: string) => request<{ ok: true }>('POST', '/auth/login', { email, password }),
   logout: () => request<{ ok: true }>('POST', '/auth/logout', {}),
-  register: (input: { firmName: string; name: string; email: string; password: string }) => request<{ ok: true }>('POST', '/auth/register', input),
   inviteInfo: (token: string) => request<{ name: string; email: string; firm: string }>('GET', `/auth/invite/${encodeURIComponent(token)}`),
   acceptInvite: (token: string, password: string) => request<{ ok: true }>('POST', '/auth/accept-invite', { token, password }),
   changePassword: (current: string, next: string) => request<{ ok: true }>('POST', '/auth/password', { current, next }),
+  forgotPassword: (email: string) => request<{ ok: true }>('POST', '/auth/forgot-password', { email }),
+  resetInfo: (token: string) => request<{ name: string; email: string }>('GET', `/auth/reset/${encodeURIComponent(token)}`),
+  resetPassword: (token: string, password: string) => request<{ ok: true }>('POST', '/auth/reset-password', { token, password }),
+  resetLink: (userId: string) => request<{ resetUrl: string; emailed: boolean }>('POST', `/users/${encodeURIComponent(userId)}/reset-link`, {}),
   inviteLink: (userId: string) => request<{ inviteUrl: string; emailed: boolean }>('POST', `/users/${encodeURIComponent(userId)}/invite-link`, {}),
   bootstrap: () => request<Bootstrap>('GET', '/bootstrap'),
   command: (name: CommandName, args: unknown[], ids: ProposedId[]) => request<CommandAck>('POST', `/commands/${name}`, { args, ids }),
@@ -84,6 +105,21 @@ export const api = {
   connectWhatsAppNumber: (input: { label: string; phoneNumberId: string; wabaId: string; token: string; appSecret: string }) =>
     request<{ id: string; displayNumber: string; verifiedName: string }>('POST', '/whatsapp/numbers', input),
   disconnectWhatsAppNumber: (id: string) => request<{ ok: true }>('DELETE', `/whatsapp/numbers/${encodeURIComponent(id)}`),
+  /** Platform superadmin (separate account and session from firm users). */
+  platform: {
+    me: () => request<{ id: string; email: string; name: string }>('GET', '/platform/me'),
+    login: (email: string, password: string) => request<{ ok: true }>('POST', '/platform/login', { email, password }),
+    logout: () => request<{ ok: true }>('POST', '/platform/logout', {}),
+    changePassword: (current: string, next: string) => request<{ ok: true }>('POST', '/platform/password', { current, next }),
+    firms: () => request<{ firms: PlatformFirm[] }>('GET', '/platform/firms'),
+    createFirm: (input: { firmName: string; adminName: string; email: string; password: string }) => request<{ id: string }>('POST', '/platform/firms', input),
+    setSuspended: (firmId: string, suspended: boolean) => request<{ ok: true }>('PATCH', `/platform/firms/${encodeURIComponent(firmId)}`, { suspended }),
+    deleteFirm: (firmId: string, confirmName: string) => request<{ ok: true }>('DELETE', `/platform/firms/${encodeURIComponent(firmId)}`, { confirmName }),
+    addAdmin: (firmId: string, input: { name: string; email: string; password: string }) => request<{ id: string }>('POST', `/platform/firms/${encodeURIComponent(firmId)}/admins`, input),
+    setAdminStatus: (userId: string, status: 'active' | 'deactivated') => request<{ ok: true }>('PATCH', `/platform/admins/${encodeURIComponent(userId)}`, { status }),
+    setAdminPassword: (userId: string, password: string) => request<{ ok: true }>('POST', `/platform/admins/${encodeURIComponent(userId)}/password`, { password }),
+    deleteAdmin: (userId: string) => request<{ ok: true }>('DELETE', `/platform/admins/${encodeURIComponent(userId)}`),
+  },
   gstin: (gstin: string) => request<{ record: unknown; pan: string; state: string; checksumOk: boolean; source: 'demo' | 'provider' }>('GET', `/gstin/${encodeURIComponent(gstin)}`),
   async upload(file: File, scope: { taskId?: string; clientId?: string }) {
     const q = new URLSearchParams(scope.taskId ? { taskId: scope.taskId } : { clientId: scope.clientId ?? '' });

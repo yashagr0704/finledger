@@ -18,6 +18,7 @@
     "db:seed": "tsx --tsconfig server/tsconfig.json server/src/cli.ts seed-demo",
     "db:create-firm": "tsx --tsconfig server/tsconfig.json server/src/cli.ts create-firm",
     "db:clear-whatsapp": "tsx --tsconfig server/tsconfig.json server/src/cli.ts clear-whatsapp",
+    "db:create-superadmin": "tsx --tsconfig server/tsconfig.json server/src/cli.ts create-superadmin",
     "typecheck:server": "tsc -p server/tsconfig.json",
     "test:server": "vitest run --config server/vitest.config.ts"
   },

@@ -4,7 +4,7 @@ import type { App } from './app';
 /** Runs scheduled work for every firm once. Safe to call concurrently on several instances. */
 export async function runJobsOnce(app: App): Promise<Record<string, JobReport>> {
   const run = async () => {
-    const { rows } = await app.db.query<{ id: string }>('SELECT id FROM firms ORDER BY id');
+    const { rows } = await app.db.query<{ id: string }>('SELECT id FROM firms WHERE suspended_at IS NULL ORDER BY id');
     const out: Record<string, JobReport> = {};
     for (const { id } of rows) {
       try {

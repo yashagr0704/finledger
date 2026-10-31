@@ -12,7 +12,7 @@ import { canAccessFile, scopeDatabase } from '@/domain/scope';
 import { checkGstin, lookupGstin } from '@/lib/gstin';
 import { canManageFirm, canManageTeam, canViewClient, canWorkOnTask } from '@/lib/permissions';
 import type { ChatMessage, Database, User } from '@/types';
-import { authenticate, createInvite, registerAuthRoutes, revokeSessions } from './auth';
+import { authenticate, createInvite, createPasswordReset, registerAuthRoutes, revokeSessions } from './auth';
 import type { Config } from './config';
 import { makeCipher, newId } from './crypto';
 import type { Db } from './db';
@@ -20,6 +20,7 @@ import { Events } from './events';
 import { FirmNotFound, FirmStore } from './firmStore';
 import { makeMailer, type Mailer } from './mail';
 import { localStorage, type Storage } from './storage';
+import { registerPlatformRoutes } from './platform';
 import { makeWhatsApp, type WhatsApp } from './whatsapp';
 
 export interface App {
@@ -119,6 +120,7 @@ export async function buildApp(config: Config, db: Db) {
   });
 
   registerAuthRoutes(f, app);
+  registerPlatformRoutes(f, app);
 
   const requireAuth = async (req: FastifyRequest, reply: FastifyReply) => {
     const auth = await authenticate(app, req);
@@ -288,6 +290,19 @@ export async function buildApp(config: Config, db: Db) {
     const inv = await createInvite(app, u.id, req.auth!.firmId);
     await app.audit(req.auth!.firmId, me.id, 'invite_link_created', { userId: u.id }, req.ip);
     return { inviteUrl: inv.url, emailed: inv.emailed };
+  });
+
+  // For a member who forgot their password when email isn't set up: the admin shares the link.
+  f.post('/api/users/:id/reset-link', { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {
+    const { id } = req.params as { id: string };
+    const { data, me } = await context(req);
+    if (!canManageTeam(me)) throw new HttpError(403, 'Only firm admins can reset passwords.');
+    const u = data.users.find((x) => x.id === id);
+    if (!u) throw new HttpError(404, 'Member not found.');
+    if (u.status !== 'active') throw new HttpError(400, u.status === 'invited' ? 'This member hasn’t joined yet. Resend their invite instead.' : 'Restore this member before resetting their password.');
+    const r = await createPasswordReset(app, u.id);
+    await app.audit(req.auth!.firmId, me.id, 'password_reset_link_created', { userId: u.id }, req.ip);
+    return { resetUrl: r.url, emailed: r.emailed };
   });
 
   // ---------------------------------------------------------- live updates

@@ -6,6 +6,7 @@ import { loadConfig, type Config } from '../src/config';
 import { connectPglite, connectPostgres } from '../src/db';
 import { migrate } from '../src/migrations';
 import { seedDemoFirm } from '../src/newFirm';
+import { upsertPlatformAdmin } from '../src/platform';
 
 export const PASSWORD = 'demo1234';
 
@@ -17,7 +18,7 @@ export async function setup(overrides: Partial<Config> = {}) {
   if (url) await db.exec('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await migrate(db);
   const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lf-files-'));
-  const config = loadConfig({ appSecret: 'test-secret-test-secret-test-secret-123', storageDir, staticDir: undefined, jobsEnabled: false, allowSignup: true, cookieSecure: false, ...overrides });
+  const config = loadConfig({ appSecret: 'test-secret-test-secret-test-secret-123', storageDir, staticDir: undefined, jobsEnabled: false, cookieSecure: false, ...overrides });
   const { fastify, app } = await buildApp(config, db);
   await seedDemoFirm(app.firms, PASSWORD);
 
@@ -46,8 +47,16 @@ export async function setup(overrides: Partial<Config> = {}) {
   const login = (who: string, email: string, password = PASSWORD) => call(who, 'POST', '/api/auth/login', { email, password });
   const cmd = (who: string, name: string, args: unknown[], ids: unknown[] = []) => call(who, 'POST', `/api/commands/${name}`, { args, ids });
   const boot = async (who: string) => (await call(who, 'GET', '/api/bootstrap')).json;
+  /** Creates a firm the only way there is — as a platform superadmin — and signs its admin in as `who`. */
+  const createFirm = async (who: string, input: { firmName: string; adminName: string; email: string; password: string }) => {
+    await upsertPlatformAdmin(db, { email: 'helper@platform.test', name: 'Helper', password: 'helper-pass-1' });
+    await call('__platform', 'POST', '/api/platform/login', { email: 'helper@platform.test', password: 'helper-pass-1' });
+    const r = await call('__platform', 'POST', '/api/platform/firms', input);
+    if (r.status === 200) await login(who, input.email, input.password);
+    return r;
+  };
 
-  return { db, app, fastify, call, login, cmd, boot, jars, close: async () => (await fastify.close(), await db.close()) };
+  return { db, app, fastify, call, login, cmd, boot, createFirm, jars, close: async () => (await fastify.close(), await db.close()) };
 }
 export type Harness = Awaited<ReturnType<typeof setup>>;
 

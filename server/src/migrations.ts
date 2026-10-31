@@ -99,6 +99,48 @@ const MIGRATIONS: { id: number; name: string; sql: string }[] = [
       CREATE INDEX whatsapp_numbers_firm_idx ON whatsapp_numbers (firm_id);
     `,
   },
+  {
+    id: 3,
+    name: 'platform superadmins',
+    sql: `
+      -- Platform operators: they manage firms and firm admins, never a firm's own data.
+      -- Separate from firm users, with their own sessions. Created from the CLI (create-superadmin).
+      CREATE TABLE platform_admins (
+        id text PRIMARY KEY,
+        email text NOT NULL,
+        name text NOT NULL,
+        password_hash text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX platform_admins_email_key ON platform_admins (lower(email));
+
+      CREATE TABLE platform_sessions (
+        id text PRIMARY KEY,
+        admin_id text NOT NULL REFERENCES platform_admins(id) ON DELETE CASCADE,
+        expires_at timestamptz NOT NULL,
+        user_agent text,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      -- A suspended firm's users can't sign in and its scheduled jobs don't run.
+      ALTER TABLE firms ADD COLUMN suspended_at timestamptz;
+    `,
+  },
+  {
+    id: 4,
+    name: 'password resets',
+    sql: `
+      -- One-time "forgot password" links (the id is the SHA-256 of the emailed token).
+      CREATE TABLE password_resets (
+        id text PRIMARY KEY,
+        user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at timestamptz NOT NULL,
+        used_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX password_resets_user_idx ON password_resets (user_id);
+    `,
+  },
 ];
 
 export async function migrate(db: Db) {

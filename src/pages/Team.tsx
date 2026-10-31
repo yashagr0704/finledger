@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowDown, MailCheck, MoreHorizontal, Pencil, Search, ShieldCheck, Trash2, UserMinus, UserPlus, UserRoundCheck, Users } from 'lucide-react';
+import { ArrowDown, KeyRound, MailCheck, MoreHorizontal, Pencil, Search, ShieldCheck, Trash2, UserMinus, UserPlus, UserRoundCheck, Users } from 'lucide-react';
 import { EmployeeDialog } from '@/components/team/EmployeeDialog';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ import { completedInMonth, isOpen, isOverdue, workloadFor } from '@/lib/metrics'
 import { WorkloadMeter } from '@/components/team/WorkloadMeter';
 import { canManageTeam } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
-import { showInviteLink, store, useCurrentUser, useDb } from '@/store/store';
+import { showInviteLink, showResetLink, store, useCurrentUser, useDb } from '@/store/store';
 import { api, BACKEND } from '@/api/client';
 import { useUI } from '@/store/ui';
 import type { Role, User } from '@/types';
@@ -201,6 +201,18 @@ export default function Team() {
                                   </MenuItem>
                                 )}
                               </>
+                            )}
+                            {BACKEND && u.status === 'active' && u.id !== me.id && (
+                              <MenuItem
+                                onSelect={() =>
+                                  void api.resetLink(u.id).then(
+                                    (r) => showResetLink(u.name, r.resetUrl, r.emailed),
+                                    (e: Error) => toast.error(e.message),
+                                  )
+                                }
+                              >
+                                <KeyRound /> Send password reset link
+                              </MenuItem>
                             )}
                             {u.status === 'deactivated' ? (
                               <MenuItem onSelect={() => store.updateMember(u.id, { status: 'active' }) && toast.success(`${u.name} reactivated`)}>

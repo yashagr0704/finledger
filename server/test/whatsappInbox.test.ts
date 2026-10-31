@@ -32,7 +32,7 @@ beforeAll(async () => {
   expect((await h.login('admin', 'rohan@mehtaiyer.demo')).status).toBe(200);
   expect((await h.login('vikram', 'vikram@mehtaiyer.demo')).status).toBe(200);
   expect((await h.login('priya', 'priya@mehtaiyer.demo')).status).toBe(200);
-  expect((await h.call('other', 'POST', '/api/auth/register', { firmName: 'Other & Co', name: 'Olga', email: 'olga@other.example', password: 'otherpass1' })).status).toBe(200);
+  expect((await h.createFirm('other', { firmName: 'Other & Co', adminName: 'Olga', email: 'olga@other.example', password: 'otherpass1' })).status).toBe(200);
 });
 afterAll(() => (vi.unstubAllGlobals(), h.close()));
 

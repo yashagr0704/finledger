@@ -29,6 +29,7 @@ import { ENTITY_TYPES } from '@/types';
 import type {
   Broadcast,
   Client,
+  Database,
   DocMovement,
   DocumentRequest,
   Dsc,
@@ -474,12 +475,17 @@ export function deleteMember(ctx: Ctx, userId: string) {
   assert(canManageTeam(ctx.me), 'Only firm admins can delete team members.');
   if (userId === ctx.me.id) fail('You cannot delete yourself.');
   found(ctx.db.users.find((u) => u.id === userId), 'Member');
-  if (ctx.db.tasks.some((t) => t.assigneeId === userId || t.reviewerId === userId)) fail('This person has tasks in the system. Deactivate them instead, or reassign their work first.');
-  ctx.db.users = ctx.db.users.filter((u) => u.id !== userId);
-  ctx.db.notes = ctx.db.notes.filter((n) => n.userId !== userId);
-  ctx.db.reminders = ctx.db.reminders.filter((r) => r.userId !== userId);
-  ctx.db.notifications = ctx.db.notifications.filter((n) => n.userId !== userId);
+  removeMember(ctx.db, userId);
   return true;
+}
+
+/** Removes a person and their private data from `db` (also used by the platform superadmin). Refused while tasks point at them. */
+export function removeMember(db: Database, userId: string) {
+  if (db.tasks.some((t) => t.assigneeId === userId || t.reviewerId === userId)) fail('This person has tasks in the system. Deactivate them instead, or reassign their work first.');
+  db.users = db.users.filter((u) => u.id !== userId);
+  db.notes = db.notes.filter((n) => n.userId !== userId);
+  db.reminders = db.reminders.filter((r) => r.userId !== userId);
+  db.notifications = db.notifications.filter((n) => n.userId !== userId);
 }
 
 export function updateFirm(ctx: Ctx, patch: Partial<Firm>) {

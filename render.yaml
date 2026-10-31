@@ -17,8 +17,6 @@ services:
         generateValue: true
       - key: PUBLIC_URL # set to the service URL, e.g. https://ledgerflow.onrender.com (used in invite links)
         sync: false
-      - key: ALLOW_SIGNUP # "true" lets anyone create a new firm from /register
-        value: "false"
       - key: SMTP_URL # optional: smtps://user:pass@smtp.example.com:465 to email invites
         sync: false
       - key: MAIL_FROM

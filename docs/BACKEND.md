@@ -91,13 +91,19 @@ All npm scripts work the same in Windows `cmd`/PowerShell, macOS and Linux. Back
 
 Sign in as `rohan@mehtaiyer.demo` (admin), `vikram@mehtaiyer.demo` (manager) or `priya@mehtaiyer.demo` (employee), all with the password `demo1234`.
 
-To start a real firm instead of the demo:
+There is no public sign-up: firms are created by a **platform superadmin**. Superadmins are separate from firm users; they manage firms (create, suspend, delete) and each firm's admins (add, deactivate, delete, reset password), but never see a firm's clients, tasks or employees. Create one from the CLI (with PGlite, while the server is stopped), then sign in at `/superadmin`:
+
+```bash
+npm run db:create-superadmin -- --email ops@yourcompany.in --password '…' --name "Ops"
+```
+
+Running it again for the same email resets that superadmin's password; `remove-superadmin --email …` deletes one. A firm can also be created directly from the CLI:
 
 ```bash
 npm run db:create-firm -- --name "Sharma & Associates" --admin-name "Asha Sharma" --email asha@firm.in --password '…'
 ```
 
-The admin then invites the team from **Employees → Add employee**. Each person gets a one-time link to set their password. The link is emailed when SMTP is configured; otherwise it is shown to the admin to share.
+The firm admin then invites the team from **Employees → Add employee**. Each person gets a one-time link to set their password. The link is emailed when SMTP is configured; otherwise it is shown to the admin to share.
 
 ### Production build without Docker
 
@@ -129,8 +135,8 @@ npm run typecheck:server
 
 1. In Render, choose **New → Blueprint** and pick this repository. `render.yaml` creates the Docker web service, a PostgreSQL database and a disk for uploads.
 2. Set `PUBLIC_URL` to the service URL, and set `SMTP_URL`/`MAIL_FROM` if you want invites emailed.
-3. Open the service's **Shell** and create the first firm:
-   `node dist-server/cli.mjs create-firm --name "…" --admin-name "…" --email … --password …`
+3. Open the service's **Shell** and create a superadmin, then create firms from `/superadmin`:
+   `node dist-server/cli.mjs create-superadmin --email … --password … --name "…"`
 
 ### Option B — any Docker host (Railway, Fly.io, a VPS, ECS…)
 
@@ -159,7 +165,7 @@ The server creates its tables on first start. The RDS security group must allow 
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `NODE_ENV` | — | `production` enables secure cookies, requires `APP_SECRET` and turns off public sign-up. |
+| `NODE_ENV` | — | `production` enables secure cookies and requires `APP_SECRET`. |
 | `DATABASE_URL` | — | PostgreSQL connection string. If unset, embedded PGlite is used (development only). |
 | `DATABASE_CA_FILE` | — | PEM file of CAs to verify the database's certificate. Automatic for `*.rds.amazonaws.com`. |
 | `PG_POOL_MAX` | `10` | Maximum database connections per server process. |
@@ -170,7 +176,6 @@ The server creates its tables on first start. The RDS security group must allow 
 | `STORAGE_DIR` | `$DATA_DIR/files` | Where uploaded files are written. |
 | `FILE_MAX_MB` | `25` | Upload size limit. |
 | `STATIC_DIR` | `dist` | The built web app to serve. Leave unset to disable. |
-| `ALLOW_SIGNUP` | `true` in dev, `false` in prod | Allows creating new firms from `/register`. |
 | `CORS_ORIGIN` | — | Only needed if the web app is on a different origin. Cookies then use `SameSite=None`. |
 | `COOKIE_SECURE` | `true` in prod | |
 | `JOBS_ENABLED` / `JOB_INTERVAL_MIN` | `true` / `15` | The scheduler. |

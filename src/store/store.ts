@@ -253,6 +253,17 @@ export function showInviteLink(url: string, emailed?: boolean) {
   });
 }
 
+export function showResetLink(name: string, url: string, emailed?: boolean) {
+  toast.success(emailed ? `Reset link emailed to ${name}` : 'Password reset link ready', {
+    description: emailed ? 'It works once, for 1 hour.' : `Share this link with ${name}. It works once, for 1 hour.`,
+    duration: 15000,
+    action: {
+      label: 'Copy link',
+      onClick: () => void navigator.clipboard?.writeText(url).then(() => toast.success('Link copied')),
+    },
+  });
+}
+
 export const store = new LedgerStore(localRepository);
 
 export function useAppState<T>(selector: (s: State) => T): T {

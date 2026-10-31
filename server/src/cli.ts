@@ -4,6 +4,7 @@ import { makeCipher } from './crypto';
 import { Events } from './events';
 import { FirmStore } from './firmStore';
 import { hashPassword, newFirmDatabase, seedDemoFirm, validatePassword } from './newFirm';
+import { upsertPlatformAdmin } from './platform';
 
 /**
  * Admin tasks:
@@ -11,6 +12,9 @@ import { hashPassword, newFirmDatabase, seedDemoFirm, validatePassword } from '.
  *   seed-demo [--password <pw>] [--reset]     load the demo firm
  *   create-firm --name <firm> --admin-name <name> --email <email> --password <pw>
  *   clear-whatsapp [--firm <id>]              delete a firm's WhatsApp chats and broadcasts (e.g. the demo's sample chats)
+ *   create-superadmin --email <email> --password <pw> [--name <name>]
+ *                                             create a platform superadmin (or reset an existing one's password)
+ *   remove-superadmin --email <email>         delete a platform superadmin
  */
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name: string) => {
@@ -55,8 +59,19 @@ try {
       result: { chats: current.chats.length, broadcasts: current.broadcasts.length },
     }));
     console.log(`Removed ${result.chats} WhatsApp messages and ${result.broadcasts} broadcasts from ${firmId}.`);
+  } else if (cmd === 'create-superadmin') {
+    const email = flag('email');
+    const password = flag('password');
+    if (!email || !password) throw new Error('Usage: create-superadmin --email <email> --password <pw> [--name <name>]');
+    const r = await upsertPlatformAdmin(db, { email, password, name: flag('name') ?? '' });
+    console.log(r.created ? `Superadmin ${email} created. Sign in at ${config.publicUrl}/superadmin` : `Password reset for superadmin ${email} (their sessions were signed out).`);
+  } else if (cmd === 'remove-superadmin') {
+    const email = flag('email');
+    if (!email) throw new Error('Usage: remove-superadmin --email <email>');
+    const { rows } = await db.query('DELETE FROM platform_admins WHERE lower(email) = lower($1) RETURNING id', [email.trim()]);
+    console.log(rows.length ? `Superadmin ${email} removed.` : `No superadmin with email ${email}.`);
   } else {
-    console.log('Commands: migrate | seed-demo [--password pw] [--reset] | create-firm --name --admin-name --email --password | clear-whatsapp [--firm id]');
+    console.log('Commands: migrate | seed-demo [--password pw] [--reset] | create-firm --name --admin-name --email --password | clear-whatsapp [--firm id] | create-superadmin --email --password [--name] | remove-superadmin --email');
     process.exitCode = 1;
   }
 } finally {

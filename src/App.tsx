@@ -10,7 +10,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { UIProvider } from '@/store/ui';
 import { useCurrentUser, useSessionStatus } from '@/store/store';
 import { BACKEND } from '@/api/client';
-import { AcceptInvitePage, ConnectionErrorPage, LoginPage, RegisterPage } from '@/pages/Auth';
+import { AcceptInvitePage, ConnectionErrorPage, ForgotPasswordPage, LoginPage, ResetPasswordPage } from '@/pages/Auth';
 import { canAccessBilling, canUseWhatsApp, canViewReports, canViewTeam } from '@/lib/permissions';
 import type { User } from '@/types';
 
@@ -34,6 +34,7 @@ const DocRegisterPage = lazy(() => import('@/pages/DocRegister'));
 const WhatsAppPage = lazy(() => import('@/pages/WhatsApp'));
 const DrivePage = lazy(() => import('@/pages/Drive'));
 const MastersPage = lazy(() => import('@/pages/Masters'));
+const PlatformApp = lazy(() => import('@/pages/Platform'));
 
 function PageSkeleton() {
   return (
@@ -79,11 +80,24 @@ export default function App() {
   // Brief boot state so the loading skeleton is exercised on first paint.
   const [ready, setReady] = useState(false);
   const status = useSessionStatus();
+  const { pathname } = useLocation();
   useEffect(() => {
     const t = setTimeout(() => setReady(true), 250);
     return () => clearTimeout(t);
   }, []);
   const toaster = <Toaster position="bottom-left" toastOptions={{ className: 'text-[13px]' }} richColors closeButton />;
+
+  // Platform superadmin console: its own sign-in, independent of any firm session.
+  if (BACKEND && (pathname === '/superadmin' || pathname.startsWith('/superadmin/'))) {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <Suspense fallback={<div className="p-6"><PageSkeleton /></div>}>
+          <PlatformApp />
+        </Suspense>
+        {toaster}
+      </TooltipProvider>
+    );
+  }
 
   // Backend mode: sign-in screens until a session exists.
   if (BACKEND && status !== 'ready') {
@@ -97,8 +111,9 @@ export default function App() {
           <ConnectionErrorPage />
         ) : (
           <Routes>
-            <Route path="/register" element={<RegisterPage />} />
             <Route path="/accept-invite" element={<AcceptInvitePage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="*" element={<LoginPage />} />
           </Routes>
         )}
@@ -112,6 +127,7 @@ export default function App() {
       <UIProvider>
         <Routes>
           {BACKEND && <Route path="/accept-invite" element={<AcceptInvitePage />} />}
+          {BACKEND && <Route path="/reset-password" element={<ResetPasswordPage />} />}
           <Route element={<AppShell />}>
             <Route
               path="*"

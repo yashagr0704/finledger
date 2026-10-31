@@ -1,11 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { brand } from '@/config/brand';
 import type { App } from './app';
+import { isProd } from './config';
 import { randomToken, sha256 } from './crypto';
-import { checkPassword, hashPassword, newFirmDatabase, validatePassword } from './newFirm';
+import { checkPassword, hashPassword, validatePassword } from './newFirm';
 
 export const SESSION_COOKIE = 'lf_session';
 const SESSION_DAYS = 30;
 const INVITE_DAYS = 7;
+const RESET_MINUTES = 60;
 // Compared against when an email doesn't exist, so timing doesn't reveal accounts.
 let dummyHash: Promise<string> | undefined;
 const getDummyHash = () => (dummyHash ??= hashPassword(randomToken()));
@@ -34,14 +37,14 @@ export async function createSession(app: App, reply: FastifyReply, req: FastifyR
   });
 }
 
-/** Resolves the session cookie. Only active users in an existing firm get through. */
+/** Resolves the session cookie. Only active users in an existing, not suspended firm get through. */
 export async function authenticate(app: App, req: FastifyRequest): Promise<AuthInfo | undefined> {
   const token = req.cookies?.[SESSION_COOKIE];
   if (!token) return undefined;
   const { rows } = await app.db.query<{ user_id: string; firm_id: string; status: string }>(
     `SELECT s.user_id, s.firm_id, u.data->>'status' AS status
-       FROM sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.id = $1 AND s.expires_at > now()`,
+       FROM sessions s JOIN users u ON u.id = s.user_id JOIN firms f ON f.id = u.firm_id
+      WHERE s.id = $1 AND s.expires_at > now() AND f.suspended_at IS NULL`,
     [sha256(token)],
   );
   const r = rows[0];
@@ -67,6 +70,37 @@ export async function createInvite(app: App, userId: string, firmId: string) {
   return { url, emailed };
 }
 
+/** A one-time link to choose a new password, emailed when SMTP is configured. Earlier unused links stop working. */
+export async function createPasswordReset(app: App, userId: string) {
+  const token = randomToken();
+  await app.db.query('UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [userId]);
+  await app.db.query('INSERT INTO password_resets (id, user_id, expires_at) VALUES ($1, $2, $3)', [sha256(token), userId, new Date(Date.now() + RESET_MINUTES * 60000)]);
+  const url = `${app.config.publicUrl}/reset-password?token=${token}`;
+  const { rows } = await app.db.query<{ email: string; name: string }>(`SELECT email, data->>'name' AS name FROM users WHERE id = $1`, [userId]);
+  let emailed = false;
+  if (rows[0]) {
+    emailed = await app.mailer
+      .send(
+        rows[0].email,
+        `Reset your ${brand.name} password`,
+        `Hello ${rows[0].name},\n\nChoose a new password here (link valid for ${RESET_MINUTES} minutes, and only once):\n${url}\n\nIf you didn't ask for this, ignore this email; your password stays the same.\n`,
+      )
+      .catch((e) => (app.log.warn({ err: e }, 'password reset email failed'), false));
+  }
+  return { url, emailed };
+}
+
+/** The user a valid, unused reset token belongs to. */
+async function resetTarget(app: App, token: string) {
+  const { rows } = await app.db.query<{ user_id: string; firm_id: string; name: string; email: string; status: string; suspended: boolean }>(
+    `SELECT u.id AS user_id, u.firm_id, u.data->>'name' AS name, u.email, u.data->>'status' AS status, f.suspended_at IS NOT NULL AS suspended
+       FROM password_resets r JOIN users u ON u.id = r.user_id JOIN firms f ON f.id = u.firm_id
+      WHERE r.id = $1 AND r.used_at IS NULL AND r.expires_at > now()`,
+    [sha256(token)],
+  );
+  return rows[0];
+}
+
 export async function revokeSessions(app: App, userId: string) {
   await app.db.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
 }
@@ -77,8 +111,9 @@ export function registerAuthRoutes(f: FastifyInstance, app: App) {
   f.post('/api/auth/login', loginLimit, async (req, reply) => {
     const { email, password } = (req.body ?? {}) as { email?: string; password?: string };
     if (typeof email !== 'string' || typeof password !== 'string') return reply.code(400).send({ message: 'Email and password are required.' });
-    const { rows } = await app.db.query<{ id: string; firm_id: string; password_hash: string | null; status: string }>(
-      `SELECT id, firm_id, password_hash, data->>'status' AS status FROM users WHERE lower(email) = lower($1)`,
+    const { rows } = await app.db.query<{ id: string; firm_id: string; password_hash: string | null; status: string; suspended: boolean }>(
+      `SELECT u.id, u.firm_id, u.password_hash, u.data->>'status' AS status, f.suspended_at IS NOT NULL AS suspended
+         FROM users u JOIN firms f ON f.id = u.firm_id WHERE lower(u.email) = lower($1)`,
       [email.trim()],
     );
     const u = rows[0];
@@ -87,6 +122,7 @@ export function registerAuthRoutes(f: FastifyInstance, app: App) {
       await app.audit(u?.firm_id, u?.id, 'login_failed', { email }, req.ip);
       return reply.code(401).send({ message: 'Email or password is incorrect.' });
     }
+    if (u.suspended) return reply.code(403).send({ message: 'Your firm’s account is suspended. Please contact support.' });
     if (u.status !== 'active') return reply.code(403).send({ message: 'Your account is not active. Ask your firm admin.' });
     await createSession(app, reply, req, u.id, u.firm_id);
     await app.audit(u.firm_id, u.id, 'login', undefined, req.ip);
@@ -106,19 +142,56 @@ export function registerAuthRoutes(f: FastifyInstance, app: App) {
     return auth;
   });
 
-  f.post('/api/auth/register', loginLimit, async (req, reply) => {
-    if (!app.config.allowSignup) return reply.code(403).send({ message: 'Sign-up is disabled on this server.' });
-    const { firmName, name, email, password } = (req.body ?? {}) as Record<string, string>;
-    if (!firmName?.trim() || !name?.trim()) return reply.code(400).send({ message: 'Firm name and your name are required.' });
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return reply.code(400).send({ message: 'Enter a valid email address.' });
+  // There is no self sign-up: firms are created by platform superadmins (see platform.ts).
+
+  // ---------------------------------------------------- forgot password
+  // Always answers the same, so it doesn't reveal which emails have accounts. The link is emailed;
+  // without SMTP it is printed in the server log in development, and a firm admin can create one.
+  f.post('/api/auth/forgot-password', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (req) => {
+    const { email } = (req.body ?? {}) as { email?: unknown };
+    if (typeof email === 'string' && email.trim()) {
+      const { rows } = await app.db.query<{ id: string; firm_id: string }>(
+        `SELECT u.id, u.firm_id FROM users u JOIN firms f ON f.id = u.firm_id
+          WHERE lower(u.email) = lower($1) AND u.data->>'status' = 'active' AND u.password_hash IS NOT NULL AND f.suspended_at IS NULL`,
+        [email.trim()],
+      );
+      const u = rows[0];
+      await app.audit(u?.firm_id, u?.id, 'password_reset_requested', { email: email.trim().slice(0, 200) }, req.ip);
+      // Not awaited: answering faster for real accounts would reveal them.
+      if (u)
+        void createPasswordReset(app, u.id)
+          .then((r) => {
+            if (r.emailed) return;
+            if (isProd) app.log.warn({ userId: u.id }, 'Password reset requested, but SMTP_URL is not set so no email was sent.');
+            else app.log.warn(`Password reset link for ${email.trim()} (development, no SMTP configured): ${r.url}`);
+          })
+          .catch((e) => app.log.error({ err: e }, 'Could not create password reset'));
+    }
+    return { ok: true };
+  });
+
+  f.get('/api/auth/reset/:token', async (req, reply) => {
+    const t = await resetTarget(app, (req.params as { token: string }).token);
+    if (!t || t.status !== 'active' || t.suspended) return reply.code(404).send({ message: 'This reset link is invalid or has expired.' });
+    return { name: t.name, email: t.email };
+  });
+
+  f.post('/api/auth/reset-password', loginLimit, async (req, reply) => {
+    const { token, password } = (req.body ?? {}) as { token?: unknown; password?: unknown };
     const pwErr = validatePassword(password);
     if (pwErr) return reply.code(400).send({ message: pwErr });
-    const exists = await app.db.query('SELECT 1 FROM users WHERE lower(email) = lower($1)', [email.trim()]);
-    if (exists.rows.length) return reply.code(409).send({ message: 'An account with this email already exists.' });
-    const { db, firmId, adminId } = newFirmDatabase(firmName, { name, email });
-    await app.firms.create(db, firmId, { [adminId]: await hashPassword(password) });
-    await createSession(app, reply, req, adminId, firmId);
-    await app.audit(firmId, adminId, 'firm_registered', undefined, req.ip);
+    const t = typeof token === 'string' ? await resetTarget(app, token) : undefined;
+    if (!t) return reply.code(404).send({ message: 'This reset link is invalid or has expired.' });
+    if (t.suspended) return reply.code(403).send({ message: 'Your firm’s account is suspended. Please contact support.' });
+    if (t.status !== 'active') return reply.code(403).send({ message: 'Your account is not active. Ask your firm admin.' });
+    // Claim the link atomically so it works only once.
+    const claimed = await app.db.query('UPDATE password_resets SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id', [sha256(token as string)]);
+    if (!claimed.rows.length) return reply.code(404).send({ message: 'This reset link is invalid or has expired.' });
+    await app.db.query('UPDATE users SET password_hash = $2 WHERE id = $1', [t.user_id, await hashPassword(password as string)]);
+    await app.db.query('UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL', [t.user_id]);
+    await revokeSessions(app, t.user_id);
+    await createSession(app, reply, req, t.user_id, t.firm_id);
+    await app.audit(t.firm_id, t.user_id, 'password_reset', undefined, req.ip);
     return { ok: true };
   });
 

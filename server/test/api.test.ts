@@ -263,7 +263,7 @@ describe('portals and portal logins', () => {
 
 describe('multi-firm isolation', () => {
   it('keeps firms completely separate', async () => {
-    const reg = await h.call('other', 'POST', '/api/auth/register', { firmName: 'Other & Co', name: 'Olga', email: 'olga@other.example', password: 'otherpass1' });
+    const reg = await h.createFirm('other', { firmName: 'Other & Co', adminName: 'Olga', email: 'olga@other.example', password: 'otherpass1' });
     expect(reg.status).toBe(200);
     const b = await h.boot('other');
     expect(b.db.firm.name).toBe('Other & Co');
@@ -274,7 +274,15 @@ describe('multi-firm isolation', () => {
     expect((await h.call('other', 'GET', '/api/clients/c_sunrise/logins/0')).status).toBe(404);
     expect((await h.call('other', 'POST', '/api/clients/c_sunrise/logins/0/launch', { portalId: 'pt_gst' })).status).toBe(404);
     expect((await h.cmd('other', 'fetchNotices', [])).status).toBe(400);
-    expect((await h.call('dup', 'POST', '/api/auth/register', { firmName: 'Dup', name: 'X', email: 'olga@other.example', password: 'otherpass1' })).status).toBe(409);
+    expect((await h.createFirm('dup', { firmName: 'Dup', adminName: 'X', email: 'olga@other.example', password: 'otherpass1' })).status).toBe(400);
+  });
+
+  it('has no public sign-up: only superadmins create firms', async () => {
+    const r = await h.call('anyone', 'POST', '/api/auth/register', { firmName: 'Self Made', name: 'Sam', email: 'sam@self.example', password: 'selfpass1' });
+    expect(r.status).toBe(404);
+    expect((await h.call('admin', 'POST', '/api/platform/firms', { firmName: 'Sneaky', adminName: 'S', email: 's@x.example', password: 'sneaky-pass' })).status).toBe(401);
+    const { rows } = await h.db.query("SELECT 1 FROM firms WHERE data->>'name' IN ('Self Made', 'Sneaky')");
+    expect(rows).toHaveLength(0);
   });
 });
 

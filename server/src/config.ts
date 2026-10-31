@@ -36,7 +36,6 @@ export interface Config {
   appSecret: string;
   cookieSecure: boolean;
   corsOrigin?: string;
-  allowSignup: boolean;
   storageDir: string;
   fileMaxMb: number;
   staticDir?: string;
@@ -60,7 +59,6 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     appSecret: overrides.appSecret ?? appSecret(),
     cookieSecure: bool(env.COOKIE_SECURE, isProd),
     corsOrigin: env.CORS_ORIGIN || undefined,
-    allowSignup: bool(env.ALLOW_SIGNUP, !isProd),
     storageDir: path.resolve(env.STORAGE_DIR ?? path.join(dataDir, 'files')),
     fileMaxMb: num(env.FILE_MAX_MB, 25),
     staticDir: fs.existsSync(path.join(staticDir, 'index.html')) ? staticDir : undefined,
