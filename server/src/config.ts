@@ -44,6 +44,8 @@ export interface Config {
   smtpUrl?: string;
   mailFrom: string;
   whatsapp?: { token: string; phoneId: string; verifyToken?: string; appSecret?: string; firmId?: string };
+  /** WHATSAPP_VERIFY_TOKEN: needed for Meta's webhook check even when firms only connect their own numbers. */
+  waVerifyToken?: string;
   gstApi?: { url: string; key?: string };
 }
 
@@ -67,6 +69,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     smtpUrl: env.SMTP_URL || undefined,
     mailFrom: env.MAIL_FROM ?? 'LedgerFlow <no-reply@localhost>',
     whatsapp: env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID ? { token: env.WHATSAPP_TOKEN, phoneId: env.WHATSAPP_PHONE_ID, verifyToken: env.WHATSAPP_VERIFY_TOKEN, appSecret: env.WHATSAPP_APP_SECRET, firmId: env.WHATSAPP_FIRM_ID } : undefined,
+    waVerifyToken: env.WHATSAPP_VERIFY_TOKEN || undefined,
     gstApi: env.GST_API_URL ? { url: env.GST_API_URL.replace(/\/$/, ''), key: env.GST_API_KEY } : undefined,
     ...overrides,
   };

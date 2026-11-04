@@ -339,7 +339,8 @@ export async function buildApp(config: Config, db: Db) {
     });
     scope.get('/api/webhooks/whatsapp', async (req, reply) => {
       const q = req.query as Record<string, string>;
-      if (q['hub.mode'] === 'subscribe' && config.whatsapp?.verifyToken && q['hub.verify_token'] === config.whatsapp.verifyToken) return reply.type('text/plain').send(q['hub.challenge']);
+      const verifyToken = config.whatsapp?.verifyToken ?? config.waVerifyToken;
+      if (q['hub.mode'] === 'subscribe' && verifyToken && q['hub.verify_token'] === verifyToken) return reply.type('text/plain').send(q['hub.challenge']);
       return reply.code(403).send({ message: 'Verification failed.' });
     });
     scope.post('/api/webhooks/whatsapp', async (req, reply) => {
@@ -389,7 +390,7 @@ export async function buildApp(config: Config, db: Db) {
   f.get('/api/whatsapp/setup', { preHandler: requireAuth }, async (req) => {
     const { me } = await context(req);
     if (!canManageFirm(me)) throw new HttpError(403, 'Only firm admins can connect WhatsApp numbers.');
-    return { callbackUrl: `${config.publicUrl}/api/webhooks/whatsapp`, verifyToken: config.whatsapp?.verifyToken ?? null };
+    return { callbackUrl: `${config.publicUrl}/api/webhooks/whatsapp`, verifyToken: config.whatsapp?.verifyToken ?? config.waVerifyToken ?? null };
   });
 
   f.post('/api/whatsapp/numbers', { preHandler: requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {
