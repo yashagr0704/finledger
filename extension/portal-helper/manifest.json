@@ -1,19 +1,36 @@
 {
   "manifest_version": 3,
   "name": "LedgerFlow Portal Helper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Fills a client's saved login on government portals when you click Login in LedgerFlow. CAPTCHA and OTP stay with you.",
-  "permissions": ["scripting", "storage"],
-  "host_permissions": ["https://*/*"],
-  "background": { "service_worker": "background.js" },
+  "permissions": [
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
-      "js": ["bridge.js"],
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.rachayitha.com/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
       "run_at": "document_start"
     }
   ],
   "externally_connectable": {
-    "matches": ["http://localhost/*", "http://127.0.0.1/*"]
+    "matches": [
+      "http://localhost/*",
+      "http://127.0.0.1/*",
+      "https://*.rachayitha.com/*"
+    ]
   }
 }

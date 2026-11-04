@@ -196,7 +196,7 @@ function ClientCredentials() {
       )}
       <p className={cn('flex items-start gap-1.5 border-t border-line px-4 py-2.5 text-2xs text-ink-500')}>
         <Info className="mt-px size-3 shrink-0" />
-        {BACKEND ? 'Passwords are encrypted on the server and every reveal or login is logged.' : 'Demo credentials are fictional.'} Login fills the sign-in form when the LedgerFlow Portal Helper extension is installed. CAPTCHA, OTP and DSC steps always stay with you.
+        {BACKEND ? 'Passwords are encrypted on the server and every reveal or login is logged.' : 'Demo credentials are fictional.'} Login fills the sign-in form through the Portal Helper extension, or the LedgerFlow Fill bookmark without it. CAPTCHA, OTP and DSC steps always stay with you.
       </p>
     </Card>
   );

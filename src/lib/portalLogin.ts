@@ -1,21 +1,23 @@
 import { useSyncExternalStore } from 'react';
 import { api, BACKEND } from '@/api/client';
-import { adapterFor, type PortalAdapter } from '@/config/portalAdapters';
+import { adapterFor, isAllowedHost, type PortalAdapter } from '@/config/portalAdapters';
+import { FILL_VERSION } from '@/lib/portalFill';
 import type { Client, Portal, PortalLogin } from '@/types';
 
 /**
- * Signing in to a client's portal.
+ * Signing in to a client's portal. Two ways to fill the form, plus copy buttons as a fallback:
  *
- * A web page cannot type into another site's tab, and a server-side browser
- * (Playwright/Selenium) cannot drive a tab in the user's own browser. So
- * autofill goes through the LedgerFlow Portal Helper extension
- * (`extension/portal-helper`): it opens the portal tab itself, types the
- * credentials only on the adapter's hosts, and leaves CAPTCHA/OTP to the user.
- * Without the extension the app opens the sign-in page and offers copy
- * buttons instead.
+ * 1. Portal Helper extension (`extension/portal-helper`), when installed: fully automatic. The
+ *    extension opens the portal tab itself, types the credentials only on the adapter's hosts,
+ *    and leaves CAPTCHA/OTP to the user. Credentials travel app → extension over
+ *    `chrome.runtime.connect`, never `window.postMessage`.
+ * 2. Without it, the "LedgerFlow Fill" bookmark (see `portalFill.ts`): Login opens the portal
+ *    in a tab LedgerFlow keeps a handle to; on that page the user clicks the bookmark, which
+ *    asks LedgerFlow for the login. LedgerFlow answers only the tab it opened, only while it is
+ *    on one of the portal's expected HTTPS hosts, and posts the login to that exact origin.
  *
- * Credentials travel app → extension over `chrome.runtime.connect`, never
- * `window.postMessage`, and are never logged or stored by the app.
+ * Credentials are fetched from the server (audited) only when needed, and never logged or
+ * stored here.
  */
 
 export type LoginState =
@@ -32,7 +34,7 @@ export interface LaunchTarget {
   portal: Portal;
 }
 
-export type LaunchResult = { mode: 'helper' } | { mode: 'manual'; adapter: PortalAdapter } | { mode: 'busy' } | { mode: 'error'; message: string };
+export type LaunchResult = { mode: 'helper' } | { mode: 'opened'; adapter: PortalAdapter } | { mode: 'busy' } | { mode: 'error'; message: string };
 
 // ------------------------------------------------------------------- status
 
@@ -53,6 +55,8 @@ export function useLoginState(key: string) {
     () => states.get(key),
   );
 }
+
+export const clearLoginState = (key: string) => setState(key, undefined);
 
 // ------------------------------------------------------------ helper bridge
 
@@ -97,40 +101,11 @@ export function useHelperInstalled() {
   );
 }
 
-// ------------------------------------------------------------------- launch
-
-/** Credentials for exactly this client + login + portal. Throws with a user-facing message. */
-async function credentials(t: LaunchTarget) {
-  if (BACKEND) {
-    const r = await api.launchLogin(t.client.id, t.login.id ?? t.index, t.portal.id);
-    if (r.clientId !== t.client.id || r.portalId !== t.portal.id) throw new Error('The server returned a different login. Nothing was filled.');
-    return r;
-  }
-  if (t.client.exitDate) throw new Error('This client has left the firm. Re-activate them to use their portal logins.');
-  if (!t.login.password) throw new Error('No password is saved for this login in this browser. Re-enter it under Edit client → Login Details.');
-  return { username: t.login.username, password: t.login.password, extra: t.login.extra };
-}
-
 const HELPER_TIMEOUT_MS = 20_000;
 
-/**
- * Starts signing in. Must be called from a click handler: without the helper
- * the sign-in page is opened synchronously so popup blockers allow it.
- */
-export function launchPortalLogin(t: LaunchTarget): LaunchResult {
+/** Signs in through the extension: it opens the tab and fills the form by itself. */
+function launchWithHelper(t: LaunchTarget, adapter: PortalAdapter, port: ChromePort): LaunchResult {
   const key = loginKey(t);
-  const current = states.get(key);
-  if (current?.state === 'working') return { mode: 'busy' };
-  if (t.client.exitDate) return { mode: 'error', message: 'This client has left the firm. Re-activate them to use their portal logins.' };
-  const adapter = adapterFor(t.portal);
-
-  const port = connectHelper();
-  if (!port) {
-    // One named tab per client + portal, so repeated clicks reuse it.
-    window.open(adapter.loginUrl, `lf_${t.client.id}_${t.portal.id}`.replace(/[^\w]/g, '_'), 'noopener');
-    return { mode: 'manual', adapter };
-  }
-
   const requestId = crypto.randomUUID();
   const label = `${t.portal.name} · ${t.client.name}`;
   setState(key, { state: 'working', message: 'Fetching credentials…' });
@@ -183,10 +158,109 @@ export function launchPortalLogin(t: LaunchTarget): LaunchResult {
   return { mode: 'helper' };
 }
 
-export const clearLoginState = (key: string) => setState(key, undefined);
+// ---------------------------------------------------------------- open tabs
 
-/** Password for the manual fallback's copy button (audited on the server). */
+/** How long after Login the bookmark may still ask for the details. */
+const JOB_TTL_MS = 15 * 60 * 1000;
+
+interface Job {
+  key: string;
+  target: LaunchTarget;
+  adapter: PortalAdapter;
+  win: Window;
+  expires: number;
+  sending: boolean;
+}
+const jobs = new Map<string, Job>();
+
+const windowName = (t: LaunchTarget) => `lf_${t.client.id}_${t.portal.id}`.replace(/[^\w]/g, '_');
+
+/**
+ * Starts signing in: through the extension when it is installed, otherwise by opening the
+ * sign-in page for the bookmark. Must be called from a click handler so popup blockers allow it.
+ */
+export function launchPortalLogin(t: LaunchTarget, opts: { skipHelper?: boolean } = {}): LaunchResult {
+  if (states.get(loginKey(t))?.state === 'working') return { mode: 'busy' };
+  if (t.client.exitDate) return { mode: 'error', message: 'This client has left the firm. Re-activate them to use their portal logins.' };
+  const adapter = adapterFor(t.portal);
+  const port = opts.skipHelper ? null : connectHelper();
+  if (port) return launchWithHelper(t, adapter, port);
+  return openForBookmark(t, adapter);
+}
+
+/** The tab keeps `window.opener` (no `noopener`): that link is how the bookmark reaches LedgerFlow. */
+function openForBookmark(t: LaunchTarget, adapter: PortalAdapter): LaunchResult {
+  const win = window.open(adapter.loginUrl, windowName(t));
+  if (!win) return { mode: 'error', message: 'The browser blocked the portal tab. Allow pop-ups for LedgerFlow and click Login again.' };
+  const key = loginKey(t);
+  // One open job per tab: a tab reused for another login answers only the latest one.
+  for (const [k, j] of jobs) if (j.win === win || k === key) jobs.delete(k);
+  jobs.set(key, { key, target: t, adapter, win, expires: Date.now() + JOB_TTL_MS, sending: false });
+  setState(key, { state: 'waiting', message: 'Portal opened — click the LedgerFlow Fill bookmark on the portal page.' });
+  return { mode: 'opened', adapter };
+}
+
+/** Credentials for exactly this client + login + portal. Throws with a user-facing message. */
+async function credentials(t: LaunchTarget) {
+  if (BACKEND) {
+    const r = await api.launchLogin(t.client.id, t.login.id ?? t.index, t.portal.id);
+    if (r.clientId !== t.client.id || r.portalId !== t.portal.id) throw new Error('The server returned a different login. Nothing was filled.');
+    return r;
+  }
+  if (t.client.exitDate) throw new Error('This client has left the firm. Re-activate them to use their portal logins.');
+  if (!t.login.password) throw new Error('No password is saved for this login in this browser. Re-enter it under Edit client → Login Details.');
+  return { username: t.login.username, password: t.login.password, extra: t.login.extra };
+}
+
+function onPortalMessage(e: MessageEvent) {
+  const d = e.data as { source?: string; type?: string; v?: number; username?: boolean; password?: boolean } | null;
+  if (!d || d.source !== 'ledgerflow-fill' || !e.source) return;
+  const source = e.source as Window;
+  const reply = (m: Record<string, unknown>) => source.postMessage({ source: 'ledgerflow', ...m }, e.origin);
+  const job = [...jobs.values()].find((j) => j.win === source);
+
+  if (d.type === 'filled') {
+    if (!job) return;
+    const both = d.username && d.password;
+    setState(job.key, both ? { state: 'waiting', message: 'Details filled. Finish CAPTCHA / OTP on the portal.' } : { state: 'error', message: 'Not every box was filled — use the copy buttons for the rest.' });
+    return;
+  }
+  if (d.type !== 'ready') return;
+  if (!job) return reply({ type: 'error', message: 'Open this portal with the Login button in LedgerFlow, then click the bookmark again.' });
+  if (d.v !== FILL_VERSION) return reply({ type: 'error', message: 'Your LedgerFlow Fill bookmark is out of date. Remove it and drag the new one from the Login dialog in LedgerFlow.' });
+  if (Date.now() > job.expires) {
+    jobs.delete(job.key);
+    setState(job.key, { state: 'error', message: 'That portal tab has expired. Click Login again.' });
+    return reply({ type: 'error', message: 'This tab has expired. Click Login in LedgerFlow again.' });
+  }
+  // Only ever send a login to the portal it belongs to, over HTTPS.
+  if (!e.origin.startsWith('https://') || !isAllowedHost(job.adapter, e.origin)) {
+    return reply({ type: 'error', message: `This page isn’t ${job.target.portal.name}’s sign-in address, so nothing was filled.` });
+  }
+  if (job.sending) return;
+  job.sending = true;
+  setState(job.key, { state: 'working', message: 'Filling the sign-in form…' });
+  credentials(job.target)
+    .then(
+      (c) => {
+        reply({ type: 'fill', adapter: job.adapter, creds: { username: c.username, password: c.password, extra: c.extra ?? '' } });
+        setState(job.key, { state: 'waiting', message: job.adapter.fillHint ?? 'Filling — finish CAPTCHA / OTP on the portal.' });
+      },
+      (err: Error) => {
+        reply({ type: 'error', message: err.message });
+        setState(job.key, { state: 'error', message: err.message });
+      },
+    )
+    .finally(() => (job.sending = false));
+}
+
+if (typeof window !== 'undefined') window.addEventListener('message', onPortalMessage);
+
+/** Password for the copy button (audited on the server). */
 export async function fetchPassword(t: LaunchTarget) {
   if (!BACKEND) return t.login.password;
   return (await api.revealLogin(t.client.id, t.login.id ?? t.index, t.portal.id)).password;
 }
+
+/** Re-opens the portal tab for a login (from the sign-in dialog), keeping the bookmark link working. */
+export const reopenPortal = (t: LaunchTarget) => launchPortalLogin(t, { skipHelper: true });

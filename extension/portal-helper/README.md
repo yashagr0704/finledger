@@ -6,7 +6,7 @@ A small Chrome/Edge extension (Manifest V3, no build step) that lets the **Login
 
 A web page can't type into another site's tab. A server-side Playwright or Selenium browser can't drive a tab in the user's own browser, and a remote browser would have to show its own CAPTCHA and OTP screens to the user. An extension is the supported way to fill a form in the user's own browser.
 
-Without the extension, Login still works. It opens the portal's sign-in page in a named tab and shows copy buttons and the remaining steps.
+Without the extension, Login still works. It opens the portal's sign-in page and offers the LedgerFlow Fill bookmark (`src/lib/portalFill.ts`) and copy buttons.
 
 ## What happens on Login
 
@@ -21,7 +21,7 @@ Jobs are held in `chrome.storage.session`, which lives in memory only and can't 
 
 ## Install (unpacked)
 
-1. Add your LedgerFlow address to `manifest.json` under both `content_scripts[0].matches` and `externally_connectable.matches`, e.g. `"https://ledgerflow.example.com/*"`. `localhost` is already listed for development.
+1. Your LedgerFlow address must be in `manifest.json` under both `content_scripts[0].matches` and `externally_connectable.matches`. `localhost` and `https://*.rachayitha.com/*` are already listed. Every build packs this folder into `public/ledgerflow-portal-helper.zip`, and the Login dialog links to it, so staff can download it from the app and unzip it.
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and choose this folder.
 3. Reload LedgerFlow. The sign-in assistant stops showing the "Install the LedgerFlow Portal Helper" hint.
 

@@ -26,3 +26,4 @@ dist-ssr
 # Backend
 dist-server
 .data
+public/ledgerflow-portal-helper.zip

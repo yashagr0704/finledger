@@ -1,11 +1,12 @@
 import type { Portal } from '@/types';
 
 /**
- * How the Portal Helper browser extension signs in to each portal.
+ * How the Portal Helper extension and the LedgerFlow Fill bookmark (src/lib/portalFill.ts)
+ * sign in to each portal.
  *
- * The extension is generic: the app sends it the adapter together with the
+ * Both are generic: the app sends them the adapter together with the
  * credentials, so portal-specific knowledge lives only here. Selectors are
- * tried in order; when none match, the helper falls back to the first visible
+ * tried in order; when none match, they fall back to the first visible
  * password box and the text box before it. Government portals change their
  * markup without notice, so keep these lists short and verify after a portal
  * redesign.
@@ -14,7 +15,7 @@ import type { Portal } from '@/types';
  * always left to the user.
  */
 export interface PortalAdapter {
-  /** Page the helper opens. */
+  /** Page the Login button opens. */
   loginUrl: string;
   /** Hostnames credentials may be typed into (exact match or a subdomain of one). */
   hosts: string[];
@@ -24,7 +25,7 @@ export interface PortalAdapter {
   extra?: string[];
   /** Field the cursor goes to after filling, usually the CAPTCHA box. */
   focusAfter?: string[];
-  /** Evidence the portal shows a signed-in page. Without it the helper never reports success. */
+  /** Evidence the portal shows a signed-in page. Used by the extension; the bookmark cannot see later pages. */
   signedIn?: { urlIncludes?: string[]; selector?: string };
   /**
    * For canvas-rendered apps (Flutter web) that have no input boxes until one is clicked:
@@ -32,7 +33,7 @@ export interface PortalAdapter {
    * into the password box — instead of searching for fields.
    */
   fillOnFocus?: boolean;
-  /** Shown in the app while the helper is working, e.g. what to click. */
+  /** Shown on the portal and in the app while filling, e.g. what to click. */
   fillHint?: string;
   /** What the user still has to do, shown in the app. */
   steps: string[];
@@ -60,7 +61,7 @@ const KNOWN: Record<string, Known> = {
     steps: ['Click Continue after the user ID is filled', 'Tick “Please confirm your secure access message”', 'Complete OTP if the portal asks for it'],
   },
   // New TRACES (2025+) is a Flutter web app drawn on a canvas: no field ids exist until a box is
-  // clicked, so the helper fills the box the user clicks into. The form asks for user ID,
+  // clicked, so the bookmark fills the box the user clicks into. The form asks for user ID,
   // password, user type and CAPTCHA (no TAN/PAN box); signed-in pages live under /auth/dashboard/.
   pt_traces: {
     loginUrl: 'https://traces.tdscpc.gov.in/auth/login/loginScreen',
@@ -68,9 +69,9 @@ const KNOWN: Record<string, Known> = {
     username: [],
     password: ['input[type="password"]'],
     fillOnFocus: true,
-    fillHint: 'Click the User ID box, then the Password box — the helper fills each one.',
+    fillHint: 'Click the User ID box, then the Password box — LedgerFlow fills each one.',
     signedIn: { urlIncludes: ['/auth/dashboard/'] },
-    steps: ['Click the User ID box, then the Password box (the helper fills them)', 'Choose the user type (Deductor / Taxpayer / PAO)', 'Enter the CAPTCHA', 'Click Login'],
+    steps: ['Click the LedgerFlow Fill bookmark, then the User ID box, then the Password box', 'Choose the user type (Deductor / Taxpayer / PAO)', 'Enter the CAPTCHA', 'Click Login'],
   },
   pt_mca: {
     loginUrl: 'https://www.mca.gov.in/content/mca/global/en/foportal/fologin.html',
